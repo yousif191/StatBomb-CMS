@@ -20,7 +20,9 @@ export const SLA_TEST_SHEET = Object.freeze({
   }),
 });
 
-const PRODUCTION_SPREADSHEET_ID = "1gT8xUWKw-83xIYCXtYXJZU1S4M87JpapM-ROBqF_KgQ";
+// Widen to string so TypeScript does not treat the production-ID guard
+// comparison as an impossible comparison between two distinct literals.
+const PRODUCTION_SPREADSHEET_ID: string = "1gT8xUWKw-83xIYCXtYXJZU1S4M87JpapM-ROBqF_KgQ";
 
 /**
  * Every test-sheet write must pass this guard immediately before the API call.
