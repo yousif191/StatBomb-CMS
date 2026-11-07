@@ -6,9 +6,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  // Authenticate with the caller's cookie-backed client first. All archive
-  // assignment reads below continue to use this user-scoped client so RLS
-  // restricts results to the signed-in collector.
   const supabase = createClient();
   const {
     data: { user },
@@ -19,9 +16,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Read only the caller's role with the server-only service client. This
-  // avoids turning a profile RLS/read failure into a misleading 403, while
-  // keeping the privileged client away from the historical assignment query.
+  // The privileged client is used only to resolve this authenticated user's
+  // profile. Historical assignment data is always queried with the user's
+  // cookie-backed client and remains protected by assignments RLS.
   const admin = createServiceRoleClient();
   const { data: profile, error: profileError } = await admin
     .from("profiles")
@@ -36,18 +33,28 @@ export async function GET(request: Request) {
       message: profileError.message,
     });
     return NextResponse.json(
-      { error: "Could not verify collector permissions right now." },
+      { error: "Could not verify your collector profile. Please try again later." },
       { status: 500 }
     );
   }
 
-  if (String(profile?.role ?? "").trim().toLowerCase() !== "collector") {
-    console.warn("Collector archive access denied", {
+  if (!profile) {
+    console.warn("Collector archive profile missing", { userId: user.id });
+    return NextResponse.json(
+      { error: "Your login has no matching profile in the CMS. Please contact an admin." },
+      { status: 403 }
+    );
+  }
+
+  if (String(profile.role ?? "").trim().toLowerCase() !== "collector") {
+    console.warn("Collector archive role mismatch", {
       userId: user.id,
-      profileFound: Boolean(profile),
-      role: profile?.role ?? null,
+      role: profile.role ?? null,
     });
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return NextResponse.json(
+      { error: "This account is not registered with the Collector role." },
+      { status: 403 }
+    );
   }
 
   const url = new URL(request.url);
@@ -60,8 +67,6 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Keep this query on the authenticated client: the collectorId predicate
-    // and assignments RLS policy ensure collectors can only see their own work.
     const assignments = await searchHistoricalAssignmentsByMatchId(supabase, matchId, user.id);
     return NextResponse.json({ assignments });
   } catch (error) {
