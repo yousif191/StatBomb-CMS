@@ -111,28 +111,31 @@ export async function runSlaTestSheetRoundTrip(tab: TabKey): Promise<{
   }
 
   const probe = `SLA_PHASE1_PROBE_${Date.now()}`;
-  assertSlaTestWriteTarget(SLA_TEST_SHEET.spreadsheetId);
-  await googleRequest(spreadsheetUrl("/values/" + encodeURIComponent(range) + "?valueInputOption=RAW"), {
-    method: "PUT",
-    body: JSON.stringify({ range, majorDimension: "ROWS", values: [[probe]] }),
-  });
-
   let writeVerified = false;
   let cleanupVerified = false;
+  let writeAttempted = false;
   try {
+    writeAttempted = true;
+    assertSlaTestWriteTarget(SLA_TEST_SHEET.spreadsheetId);
+    await googleRequest(spreadsheetUrl("/values/" + encodeURIComponent(range) + "?valueInputOption=RAW"), {
+      method: "PUT",
+      body: JSON.stringify({ range, majorDimension: "ROWS", values: [[probe]] }),
+    });
     const after = await googleRequest<{ values?: unknown[][] }>(readUrl);
     writeVerified = after.values?.[0]?.[0] === probe;
     if (!writeVerified) throw new Error("SLA test probe read-back did not match.");
   } finally {
-    assertSlaTestWriteTarget(SLA_TEST_SHEET.spreadsheetId);
-    await googleRequest(spreadsheetUrl("/values/" + encodeURIComponent(range) + ":clear"), {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-    const restored = await googleRequest<{ values?: unknown[][] }>(readUrl);
-    const restoredValue = restored.values?.[0]?.[0];
-    cleanupVerified = restoredValue === undefined || restoredValue === "";
-    if (!cleanupVerified) throw new Error("SLA test probe cleanup could not be verified.");
+    if (writeAttempted) {
+      assertSlaTestWriteTarget(SLA_TEST_SHEET.spreadsheetId);
+      await googleRequest(spreadsheetUrl("/values/" + encodeURIComponent(range) + ":clear"), {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      const restored = await googleRequest<{ values?: unknown[][] }>(readUrl);
+      const restoredValue = restored.values?.[0]?.[0];
+      cleanupVerified = restoredValue === undefined || restoredValue === "";
+      if (!cleanupVerified) throw new Error("SLA test probe cleanup could not be verified.");
+    }
   }
 
   return { tab: resolved.title, cell, writeVerified, cleanupVerified };
