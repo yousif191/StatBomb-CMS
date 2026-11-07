@@ -16,9 +16,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // The privileged client is used only to resolve this authenticated user's
-  // profile. Historical assignment data is always queried with the user's
-  // cookie-backed client and remains protected by assignments RLS.
+  // Resolve the signed-in user's actual role server-side. The service-role
+  // client is used only for this profile lookup, never for assignment data.
   const admin = createServiceRoleClient();
   const { data: profile, error: profileError } = await admin
     .from("profiles")
@@ -33,7 +32,7 @@ export async function GET(request: Request) {
       message: profileError.message,
     });
     return NextResponse.json(
-      { error: "Could not verify your collector profile. Please try again later." },
+      { error: "Could not verify your account permissions right now." },
       { status: 500 }
     );
   }
@@ -46,13 +45,15 @@ export async function GET(request: Request) {
     );
   }
 
-  if (String(profile.role ?? "").trim().toLowerCase() !== "collector") {
-    console.warn("Collector archive role mismatch", {
-      userId: user.id,
-      role: profile.role ?? null,
-    });
+  const role = String(profile.role ?? "").trim().toLowerCase();
+  // Admin accounts are already allowed into the Collector workspace by
+  // CollectorLayout. Permit the same workspace capability here as well.
+  // The archive query below is still explicitly scoped to this user's ID,
+  // so admin access does not expose other collectors' historical assignments.
+  if (role !== "collector" && role !== "admin") {
+    console.warn("Collector archive role mismatch", { userId: user.id, role });
     return NextResponse.json(
-      { error: "This account is not registered with the Collector role." },
+      { error: "This account cannot access the Collector workspace." },
       { status: 403 }
     );
   }
@@ -67,6 +68,8 @@ export async function GET(request: Request) {
   }
 
   try {
+    // Keep the user-scoped client and explicit user ID filter. Even admins
+    // searching from the Collector workspace see only their own assignments.
     const assignments = await searchHistoricalAssignmentsByMatchId(supabase, matchId, user.id);
     return NextResponse.json({ assignments });
   } catch (error) {
