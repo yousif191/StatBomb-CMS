@@ -243,6 +243,17 @@ async function createOrUpdateAssignment(
     allowExistingCollectorUpdate,
   }, lookupIndexes);
   if (!planned.ok) {
+    // The row is already eligible at the sheet parsing stage; capture the
+    // actual reconciliation rejection here (collector/match resolution).
+    console.warn("Distribution row rejected during assignment planning", {
+      raw_row_number: row.raw_row_number,
+      match_id: row.match_id,
+      collector_hr_code: row.collector_hr_code,
+      task: row.task,
+      half: row.half,
+      status: row.status,
+      reason: planned.reason,
+    });
     const reason = planned.reason.startsWith("Match ID was not found")
       ? "match_not_found"
       : planned.reason.startsWith("HR-Code does not resolve")
@@ -417,6 +428,7 @@ export async function reconcileDistributionAssignments(
     else rowsByLogicalKey.set(key, [row]);
   }
   const eligibleRows: DistributionMatchRow[] = [];
+  const rejectedRowDiagnostics: Array<{ row: number; matchId: string; hrCode: string | null; task: string | null; half: string | null; reason: string }> = [];
   const assignmentOverridesByRowNumber = new Map<number, AssignmentRow>();
   const rowCountsByMatchCollector = new Map<string, number>();
   const assignmentsByMatchCollector = new Map<string, AssignmentRow[]>();
@@ -584,6 +596,8 @@ export async function reconcileDistributionAssignments(
     updated: result.updated,
     restored: result.restored,
     skipped: result.skipped,
+    skippedReasons: result.skippedReasons,
+    rejectedRowDiagnostics,
   });
   const presenceStartedAt = Date.now();
   // The assignments array is already updated as rows are inserted/changed.
@@ -612,6 +626,7 @@ export async function reconcileDistributionAssignments(
     updated: result.updated,
     restored: result.restored,
     skipped: result.skipped,
+    skippedReasons: result.skippedReasons,
   });
   return result;
 }
