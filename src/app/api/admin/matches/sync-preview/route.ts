@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { NextResponse } from "next/server";
 import { buildMatchMasterApplyPlan, classifyMatchMasterRows, createMatchMasterPreviewFingerprint, fetchMatchMasterPreviewMatches } from "@/lib/match-master-preview";
-import { parseMatchMasterSla } from "@/lib/match-master-cache-sync";
+import { parseMatchMasterSla, syncMatchMasterCache } from "@/lib/match-master-cache-sync";
 import { readMatchesMasterSheetForEtaWindow } from "@/lib/sync/google-sheets";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { acquireMatchMasterSyncLock, releaseMatchMasterSyncLock } from "@/lib/match-master-sync-lock";
@@ -188,52 +188,15 @@ export async function POST() {
   }
 
   try {
-    // One source snapshot powers both the cache update and the refreshed preview.
-    const sourceRows = await readMatchesMasterSheetForEtaWindow(7);
-    // This is a scoped seven-day check only. Never pass this partial snapshot
-    // into the full-cache synchronizer, which is allowed to reconcile stale IDs.
-    const syncResult = {
-      sourceRows: sourceRows.length,
-      changedRows: 0,
-      upsertedRows: 0,
-      deletedStaleRows: 0,
-      scope: "latest_7_eta_days",
-    };
-    const sourceIds = [...new Set(sourceRows.map((row) => row.match_id).filter(Boolean))];
-    const matches: Awaited<ReturnType<typeof fetchMatchMasterPreviewMatches>> = [];
-    for (let offset = 0; offset < sourceIds.length; offset += 500) {
-      const { data, error } = await supabase.from("matches")
-        .select("external_id, home_team, away_team, competition, match_date, kickoff_time")
-        .in("external_id", sourceIds.slice(offset, offset + 500));
-      if (error) throw error;
-      matches.push(...(data ?? []));
-    }
-    const preview = classifyMatchMasterRows(sourceRows, matches);
-    const plan = buildMatchMasterApplyPlan(sourceRows, matches);
-    const counts = new Map<string, number>();
-    for (const row of sourceRows) counts.set(row.match_id, (counts.get(row.match_id) ?? 0) + 1);
+    // Perform a real, verified cache sync from the complete Match Master sheet.
+    // The cache sync has a source-completeness safety gate and will not delete
+    // cached rows if the sheet snapshot looks truncated.
+    const syncResult = await syncMatchMasterCache();
 
     return NextResponse.json({
       success: true,
       sync: syncResult,
-      preview: {
-        ...preview,
-        fingerprint: createMatchMasterPreviewFingerprint(sourceRows, matches),
-        apply: {
-          candidates: plan.candidates.length,
-          blockedDuplicateConflicts: plan.blockedDuplicateConflicts.length,
-          duplicateExactDeduped: plan.candidates.filter((candidate) => candidate.result === "DUPLICATE_EXACT_DEDUPED").length,
-          invalidMetadata: plan.invalidMetadata.length,
-        },
-      },
-      changeCheck: {
-        success: true,
-        changedMatches: 0,
-        newMatches: 0,
-        duplicateIdsSkipped: [...counts.values()].filter((count) => count > 1).length,
-        sample: [],
-        pendingChanges: [],
-      },
+      message: "Match Master cache successfully synchronized from Google Sheets.",
     });
   } catch (error) {
     console.error("Match Master Check & Update failed", error);
