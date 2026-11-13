@@ -7,6 +7,16 @@ import {
 } from "@/lib/sync/distribution-identity";
 import type { AssignmentRow, MatchRow, ProfileRow } from "@/types/database.types";
 
+/** Normalize sheet/profile HR codes identically, including hidden RTL format marks. */
+function normalizeCollectorHrCode(value: string | null | undefined): string {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .replace(/[\p{Cf}\u200B-\u200D\uFEFF]/gu, "")
+    .replace(/[\s\u00A0]+/g, "")
+    .trim()
+    .toUpperCase();
+}
+
 type DistributionIdentityRow = {
   match_id: string;
   task: string | null;
@@ -131,7 +141,7 @@ export function reconcileDistributionPresence(input: {
   for (const row of input.distributionRows) {
     const baseKey = distributionRowLogicalKey(row);
     if (!baseKey) continue;
-    const hrCode = String(row.collector_hr_code ?? "").trim().toUpperCase();
+    const hrCode = normalizeCollectorHrCode(row.collector_hr_code);
     if (withCollector && !hrCode) continue;
     presentKeys.add(withCollector ? `${baseKey}|${hrCode}` : baseKey);
   }
@@ -149,7 +159,7 @@ export function reconcileDistributionPresence(input: {
     const matchExternalId = matchesById.get(assignment.match_id) ?? "";
     const baseKey = assignmentLogicalKey(assignment, matchExternalId);
     const profile = profilesById.get(assignment.collector_id);
-    const hrCode = String(profile?.hr_code ?? "").trim().toUpperCase();
+    const hrCode = normalizeCollectorHrCode(profile?.hr_code);
     const key = baseKey ? (withCollector ? (hrCode ? `${baseKey}|${hrCode}` : null) : baseKey) : null;
     if (!key) {
       missingAssignmentIds.push(assignment.id);
