@@ -37,8 +37,8 @@ export async function PATCH(
     // Existing Distribution rows may have a collector but missing Task/Half.
     // Allow those blank old values so admins can complete the row without
     // having to change the collector as a workaround.
-    if (!body.expectedCollectorHrCode || !body.collectorHrCode || !body.task || !body.half) {
-      return NextResponse.json({ success: false, error: "Collector, Task, and Half are required for the saved assignment." }, { status: 422 });
+    if (!body.collectorHrCode?.trim() || !body.task?.trim() || !body.half?.trim()) {
+      return NextResponse.json({ success: false, error: "Select a Collector, Task, and Half before saving." }, { status: 422 });
     }
 
     const roster = await pullTeamSheet();
@@ -52,7 +52,9 @@ export async function PATCH(
     const row = await updateDistributionRow({
       matchId,
       rowNumber,
-      expectedCollectorHrCode: body.expectedCollectorHrCode,
+      // Existing sheet rows may be missing any of these values. Empty expected
+      // values are valid when verifying the original row before completing it.
+      expectedCollectorHrCode: body.expectedCollectorHrCode ?? "",
       expectedTask: body.expectedTask ?? "",
       expectedHalf: body.expectedHalf ?? "",
       collectorHrCode: collector.hr_code,

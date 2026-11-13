@@ -12,6 +12,7 @@ import type {
   SyncRunStatus,
 } from "@/types/database.types";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fetchAllPages } from "@/lib/assignments/query-pagination";
 
 type Client = SupabaseClient<Database>;
 
@@ -856,29 +857,62 @@ export function parsePreviewSourceRows(
   return { sheets: [source.sheetName], summary: buildSummary(candidates, candidates.length), candidates };
 }
 
-export async function loadPreviewContext(client: Client): Promise<{
+export async function loadPreviewContext(
+  client: Client,
+  source?: PreviewSourceRows,
+): Promise<{
   matches: MatchRow[];
   assignments: AssignmentRow[];
   profiles: ProfileRow[];
 }> {
-  // Fetch only the columns used by preview/reconciliation. These tables can be
-  // large; transferring notes, timestamps, and unrelated profile data on every
-  // sync adds latency without changing any preview decisions.
-  const [matches, assignments, profiles] = await Promise.all([
-    client.from("matches").select("id,external_id"),
-    client.from("assignments").select(
-      "id,match_id,collector_id,raw_task_value,task,half,sla,shift_date,distribution_present"
-    ),
-    client.from("profiles").select("id,hr_code,role,deleted_at,suspended_at").is("deleted_at", null),
-  ]);
-  if (matches.error) throw new Error("Unable to load matches for preview.");
-  if (assignments.error) throw new Error("Unable to load assignments for preview.");
-  if (profiles.error) throw new Error("Unable to load collectors for preview.");
-  return {
-    matches: (matches.data ?? []) as unknown as MatchRow[],
-    assignments: (assignments.data ?? []) as unknown as AssignmentRow[],
-    profiles: (profiles.data ?? []) as unknown as ProfileRow[],
-  };
+  // Scope database reads to Match IDs and collector codes present in this
+  // Distribution snapshot. The previous unfiltered table reads transferred
+  // every historical assignment/profile on every refresh and could also be
+  // silently truncated by PostgREST's response cap.
+  const headers = source?.headers.map(normalizeHeader) ?? [];
+  const matchIndex = headers.findIndex((header) => FIELD_ALIASES.external_id.includes(header));
+  const collectorIndex = headers.findIndex((header) => FIELD_ALIASES.collector_hr_code.includes(header));
+  const matchIds = source && matchIndex >= 0
+    ? [...new Set(source.rows.map((row) => String(row[matchIndex] ?? "").trim()).filter(Boolean))]
+    : [];
+  const hrCodes = source && collectorIndex >= 0
+    ? [...new Set(source.rows.map((row) => String(row[collectorIndex] ?? "").trim().toUpperCase()).filter(Boolean))]
+    : [];
+
+  const matches: MatchRow[] = [];
+  for (let offset = 0; offset < matchIds.length; offset += 400) {
+    const chunk = matchIds.slice(offset, offset + 400);
+    const rows = await fetchAllPages(
+      (from, to) => client.from("matches").select("id,external_id")
+        .in("external_id", chunk).order("id", { ascending: true }).range(from, to),
+    );
+    matches.push(...(rows as unknown as MatchRow[]));
+  }
+
+  const assignments: AssignmentRow[] = [];
+  const matchInternalIds = [...new Set(matches.map((match) => match.id))];
+  for (let offset = 0; offset < matchInternalIds.length; offset += 400) {
+    const chunk = matchInternalIds.slice(offset, offset + 400);
+    const rows = await fetchAllPages(
+      (from, to) => client.from("assignments").select(
+        "id,match_id,collector_id,raw_task_value,task,half,sla,shift_date,distribution_present"
+      ).in("match_id", chunk).order("id", { ascending: true }).range(from, to),
+    );
+    assignments.push(...(rows as unknown as AssignmentRow[]));
+  }
+
+  const profiles: ProfileRow[] = [];
+  for (let offset = 0; offset < hrCodes.length; offset += 400) {
+    const chunk = hrCodes.slice(offset, offset + 400);
+    const rows = await fetchAllPages(
+      (from, to) => client.from("profiles").select("id,hr_code,role,deleted_at,suspended_at")
+        .in("hr_code", chunk).is("deleted_at", null)
+        .order("id", { ascending: true }).range(from, to),
+    );
+    profiles.push(...(rows as unknown as ProfileRow[]));
+  }
+
+  return { matches, assignments, profiles };
 }
 
 export function toSyncRunMetadata(result: PreviewResult): Record<string, unknown> {

@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { getProfileOrRedirect } from "@/lib/auth/getProfile";
 import { createClient } from "@/lib/supabase/server";
-import { normalizeMatchId, normalizeDistributionHalf } from "@/lib/sync/distribution-identity";
+import { normalizeMatchId } from "@/lib/sync/distribution-identity";
 import type { MatchMasterRow } from "@/lib/sync/google-sheets";
 import { normalizeEtaDate } from "@/lib/match-master-date";
 import { syncMatchMasterCache } from "@/lib/match-master-cache-sync";
+import { fetchAllPages } from "@/lib/assignments/query-pagination";
+import { getMatchMasterDistributionSummaries } from "@/lib/assignments/queries";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,8 +60,7 @@ export async function GET(request: Request) {
       .from("match_master_cache")
       .select("match_id, eta_date, sla_sort_at, home_team, away_team, match_data")
       .order("sla_sort_at", { ascending: true, nullsFirst: false })
-      .order("match_id", { ascending: true })
-      .limit(1000);
+      .order("match_id", { ascending: true });
 
     if (etaDate) {
       // Apply the date filter before the result limit so old days remain searchable.
@@ -76,8 +77,7 @@ export async function GET(request: Request) {
       }
     }
 
-    const { data: cachedRows, error: cacheError } = await cacheQuery;
-    if (cacheError) throw cacheError;
+    const cachedRows = await fetchAllPages((from, to) => cacheQuery.range(from, to));
 
     const selected = (cachedRows ?? []).map((row) => ({
       ...((row.match_data ?? {}) as unknown as MatchMasterRow),
@@ -100,37 +100,16 @@ export async function GET(request: Request) {
     }
 
     const internalIds = [...new Set(selected.map((match) => externalIdToInternalId.get(match.match_id)).filter((id): id is string => Boolean(id)))];
-    const assignments: Array<{ match_id: string; task: string; half: string; distribution_present: boolean }> = [];
-    for (let offset = 0; offset < internalIds.length; offset += 400) {
-      const { data, error } = await supabase.from("assignments")
-        .select("match_id, task, half, distribution_present")
-        .in("match_id", internalIds.slice(offset, offset + 400));
-      if (error) throw error;
-      assignments.push(...(data ?? []));
-    }
-
-    const externalIdByInternalId = new Map([...externalIdToInternalId.entries()].map(([external, internal]) => [internal, external] as const));
-    const distributionByExternalId = new Map<string, { halves: Set<string>; tasks: Set<string> }>();
-    for (const assignment of assignments) {
-      if (assignment.distribution_present === false) continue;
-      const externalId = externalIdByInternalId.get(assignment.match_id);
-      if (!externalId) continue;
-      const current = distributionByExternalId.get(externalId) ?? { halves: new Set<string>(), tasks: new Set<string>() };
-      current.halves.add(normalizeDistributionHalf(assignment.half));
-      const task = String(assignment.task ?? "").trim();
-      if (task) current.tasks.add(task);
-      distributionByExternalId.set(externalId, current);
+    const summariesByInternalId = await getMatchMasterDistributionSummaries(supabase, internalIds);
+    const distributionByExternalId = new Map<string, { halves: string[]; tasks: string[] }>();
+    for (const [externalId, internalId] of externalIdToInternalId) {
+      const summary = summariesByInternalId.get(internalId);
+      if (summary) distributionByExternalId.set(externalId, summary);
     }
 
     const matches: MatchWithDistribution[] = selected.map((match) => {
       const distribution = distributionByExternalId.get(match.match_id);
-      return {
-        ...match,
-        distribution: distribution ? {
-          halves: [...distribution.halves].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
-          tasks: [...distribution.tasks].sort((a, b) => a.localeCompare(b)),
-        } : null,
-      };
+      return { ...match, distribution: distribution ?? null };
     });
 
     return NextResponse.json({ success: true, count: matches.length, matches });
