@@ -417,6 +417,7 @@ export async function reconcileDistributionAssignments(
     else rowsByLogicalKey.set(key, [row]);
   }
   const eligibleRows: DistributionMatchRow[] = [];
+  const rejectedRowDiagnostics: Array<{ row: number; matchId: string; hrCode: string | null; task: string | null; half: string | null; reason: string }> = [];
   const assignmentOverridesByRowNumber = new Map<number, AssignmentRow>();
   const rowCountsByMatchCollector = new Map<string, number>();
   const assignmentsByMatchCollector = new Map<string, AssignmentRow[]>();
@@ -584,6 +585,8 @@ export async function reconcileDistributionAssignments(
     updated: result.updated,
     restored: result.restored,
     skipped: result.skipped,
+    skippedReasons: result.skippedReasons,
+    rejectedRowDiagnostics,
   });
   const presenceStartedAt = Date.now();
   // The assignments array is already updated as rows are inserted/changed.
@@ -612,6 +615,7 @@ export async function reconcileDistributionAssignments(
     updated: result.updated,
     restored: result.restored,
     skipped: result.skipped,
+    skippedReasons: result.skippedReasons,
   });
   return result;
 }
