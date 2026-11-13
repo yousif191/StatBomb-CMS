@@ -294,7 +294,9 @@ export async function getAdminDashboardAssignmentsForShift(
         .select("*")
         .eq("hidden_from_admin_dashboard", false)
         .eq("shift_date", shiftDate)
-        .eq("distribution_present", true)
+        // Match Master treats only explicit false as absent. Keep the same
+        // semantics here so legacy NULL flags do not hide valid assignments.
+        .or("distribution_present.eq.true,distribution_present.is.null")
         .order("created_at", { ascending: false })
         .order("id", { ascending: true })
         .range(from, to),
