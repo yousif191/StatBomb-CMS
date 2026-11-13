@@ -101,8 +101,19 @@ export async function GET() {
       // A matching fingerprint guarantees there are no field-level differences.
       if (!previous) continue;
       const details: Array<{ field: string; before: string; after: string }> = [];
+
+      // ETA/SLA are scheduling fields. When ETA is first populated for an
+      // existing Match Master row, Sheets may also calculate/populate SLA.
+      // Treat that as initial scheduling data, not as a change to an existing
+      // schedule. Later edits are still reported once ETA already existed.
+      const previousEta = previous.eta == null ? "" : String(previous.eta).trim();
+      const currentEta = source.eta == null ? "" : String(source.eta).trim();
+      const etaWasInitiallyBlank = !previousEta && Boolean(currentEta);
+
       for (const key of Object.keys(source)) {
         if (key === "source_row" || key === "raw_match_id" || key === "match_id_valid") continue;
+        if (etaWasInitiallyBlank && (key === "eta" || key === "sla")) continue;
+
         const beforeValue = previous[key];
         const afterValue = source[key as keyof typeof source];
         const before = beforeValue == null ? "" : String(beforeValue).trim();
