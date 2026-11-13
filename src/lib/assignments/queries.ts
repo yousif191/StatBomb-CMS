@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AssignmentStatus, AssignmentTaskTimerRow, Database, MatchRow } from "@/types/database.types";
 import type { AssignmentWithMatch } from "./types";
 import { fetchAllPages } from "./query-pagination";
+import { normalizeDistributionHalf } from "@/lib/sync/distribution-identity";
 
 type Client = SupabaseClient<Database>;
 
@@ -391,4 +392,61 @@ export async function searchHistoricalAssignmentsByMatchId(
   const { data: assignments, error: assignmentsError } = await assignmentsQuery;
   if (assignmentsError) throw assignmentsError;
   return attachMatches(supabase, assignments ?? []);
+}
+
+
+export type MatchMasterDistributionSummary = {
+  halves: string[];
+  tasks: string[];
+};
+
+/**
+ * Fetch and aggregate Match Master distribution rows using the shared,
+ * explicitly paginated assignment reader. Only an explicit false presence
+ * flag is excluded, preserving Match Master's established NULL semantics.
+ */
+export async function getMatchMasterDistributionSummaries(
+  supabase: Client,
+  matchIds: string[],
+): Promise<Map<string, MatchMasterDistributionSummary>> {
+  const summaries = new Map<string, { halves: Set<string>; tasks: Set<string> }>();
+  const uniqueMatchIds = [...new Set(matchIds)];
+  const chunkSize = 400;
+
+  for (let offset = 0; offset < uniqueMatchIds.length; offset += chunkSize) {
+    const chunk = uniqueMatchIds.slice(offset, offset + chunkSize);
+    const assignments = await fetchAllPages(
+      (from, to) =>
+        supabase
+          .from("assignments")
+          .select("id, match_id, task, half, distribution_present")
+          .in("match_id", chunk)
+          .order("id", { ascending: true })
+          .range(from, to),
+      ASSIGNMENTS_PAGE_SIZE,
+    );
+
+    for (const assignment of assignments) {
+      if (assignment.distribution_present === false) continue;
+
+      const current = summaries.get(assignment.match_id) ?? {
+        halves: new Set<string>(),
+        tasks: new Set<string>(),
+      };
+      current.halves.add(normalizeDistributionHalf(assignment.half));
+      const task = String(assignment.task ?? "").trim();
+      if (task) current.tasks.add(task);
+      summaries.set(assignment.match_id, current);
+    }
+  }
+
+  return new Map(
+    [...summaries.entries()].map(([matchId, summary]) => [
+      matchId,
+      {
+        halves: [...summary.halves].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+        tasks: [...summary.tasks].sort((a, b) => a.localeCompare(b)),
+      },
+    ]),
+  );
 }
