@@ -571,9 +571,9 @@ export type DistributionCreateInput = {
 export type DistributionUpdateInput = {
   matchId: string;
   rowNumber: number;
-  expectedCollectorHrCode: string;
-  expectedTask: string;
-  expectedHalf: string;
+  expectedCollectorHrCode?: string | null;
+  expectedTask?: string | null;
+  expectedHalf?: string | null;
   collectorHrCode: string;
   collectorName?: string | null;
   task: string;
@@ -811,11 +811,11 @@ export async function updateDistributionRow(input: DistributionUpdateInput): Pro
   const matchId = normalizeMatchId(input.matchId);
   const expectedHrCode = normalizeDistributionCollectorHrCode(input.expectedCollectorHrCode);
   const collectorHrCode = normalizeDistributionCollectorHrCode(input.collectorHrCode);
-  const expectedTask = normalizeDistributionTask(input.expectedTask);
+  const expectedTask = normalizeDistributionTask(input.expectedTask ?? "");
   const task = normalizeDistributionTask(input.task);
-  const expectedHalf = normalizeDistributionHalf(input.expectedHalf);
+  const expectedHalf = normalizeDistributionHalf(input.expectedHalf ?? "");
   const half = normalizeDistributionHalf(input.half);
-  if (!matchId || !Number.isSafeInteger(input.rowNumber) || input.rowNumber < 2 || !expectedHrCode || !collectorHrCode || !task) {
+  if (!matchId || !Number.isSafeInteger(input.rowNumber) || input.rowNumber < 2 || !collectorHrCode || !task) {
     throw new PreviewInputError("The Distribution edit input is invalid.");
   }
   // Keep custom Distribution tasks editable; the sheet is the source of truth
