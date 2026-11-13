@@ -25,6 +25,8 @@ export type GoogleSheetsPull = {
   spreadsheetId: string;
   sheetName: string;
   pulledAt: string;
+  complete: true;
+  sourceRowCount: number;
   rows: SourceRows;
 };
 
@@ -475,11 +477,10 @@ export async function pullDistributionSheet(): Promise<GoogleSheetsPull> {
   const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
   const sheetName = normalizedSheetName(process.env.GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution");
   const headerRow = Number(process.env.GOOGLE_SHEETS_HEADER_ROW ?? "1");
-  const configuredMaxRows = Number(process.env.GOOGLE_SHEETS_MAX_ROWS ?? "10000");
-  const maxRows =
-    Number.isInteger(configuredMaxRows) && configuredMaxRows > 0
-      ? Math.min(configuredMaxRows, PREVIEW_LIMITS.maxRows)
-      : 500;
+  // This is a safety ceiling, not an operational row limit. Read the
+  // complete used range in one request so refresh speed/correctness no longer
+  // depends on GOOGLE_SHEETS_MAX_ROWS. Request one extra row to detect overflow.
+  const maxRows = PREVIEW_LIMITS.maxRows;
   if (!Number.isInteger(headerRow) || headerRow < 1 || headerRow > 100) {
     throw new PreviewInputError("Google Sheets header row configuration is invalid.");
   }
@@ -492,7 +493,7 @@ export async function pullDistributionSheet(): Promise<GoogleSheetsPull> {
     throw new PreviewInputError("Google Sheets integration is not configured.");
   }
 
-  const range = `${sheetName}!A${headerRow}:Z${headerRow + maxRows}`;
+  const range = `${sheetName}!A${headerRow}:Z${headerRow + maxRows + 1}`;
   const url = new URL(`${GOOGLE_SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}`);
   if (!serviceAccountConfigured && apiKey) url.searchParams.set("key", apiKey);
   const headers: HeadersInit = serviceAccountConfigured
@@ -511,6 +512,8 @@ export async function pullDistributionSheet(): Promise<GoogleSheetsPull> {
     spreadsheetId,
     sheetName,
     pulledAt: new Date().toISOString(),
+    complete: true,
+    sourceRowCount: Math.max(0, values.length - 1),
     rows: {
       sheetName,
       headers: values[0]?.map((value) => String(value ?? "")) ?? [],
