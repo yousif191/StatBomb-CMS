@@ -243,6 +243,17 @@ async function createOrUpdateAssignment(
     allowExistingCollectorUpdate,
   }, lookupIndexes);
   if (!planned.ok) {
+    // The row is already eligible at the sheet parsing stage; capture the
+    // actual reconciliation rejection here (collector/match resolution).
+    console.warn("Distribution row rejected during assignment planning", {
+      raw_row_number: row.raw_row_number,
+      match_id: row.match_id,
+      collector_hr_code: row.collector_hr_code,
+      task: row.task,
+      half: row.half,
+      status: row.status,
+      reason: planned.reason,
+    });
     const reason = planned.reason.startsWith("Match ID was not found")
       ? "match_not_found"
       : planned.reason.startsWith("HR-Code does not resolve")
