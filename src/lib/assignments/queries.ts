@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AssignmentStatus, AssignmentTaskTimerRow, Database, MatchRow } from "@/types/database.types";
 import type { AssignmentWithMatch } from "./types";
+import { fetchAllPages } from "./query-pagination";
 
 type Client = SupabaseClient<Database>;
 
@@ -138,24 +139,16 @@ export async function getAdminShiftAnalysisAssignments(
 
 /** All assignments visible to the caller (admin — RLS allows this). */
 export async function getAllAssignments(supabase: Client): Promise<AssignmentWithMatch[]> {
-  // PostgREST caps a single response at the configured max row count (commonly 1,000).
-  // Fetch every page in a stable order so analytics and historical drill-downs
-  // don't silently omit older/newer shifts when the assignments table grows.
-  const assignments: Database["public"]["Tables"]["assignments"]["Row"][] = [];
-
-  for (let from = 0; ; from += ASSIGNMENTS_PAGE_SIZE) {
-    const { data, error } = await supabase
+  // Fetch every page in a stable order; the shared helper prevents silent
+  // truncation at the PostgREST response limit.
+  const assignments = await fetchAllPages((from, to) =>
+    supabase
       .from("assignments")
       .select("*")
       .order("id", { ascending: true })
-      .range(from, from + ASSIGNMENTS_PAGE_SIZE - 1);
-
-    if (error) throw error;
-
-    const page = data ?? [];
-    assignments.push(...page);
-    if (page.length < ASSIGNMENTS_PAGE_SIZE) break;
-  }
+      .range(from, to),
+    ASSIGNMENTS_PAGE_SIZE,
+  );
 
   return attachMatches(supabase, assignments);
 }
@@ -166,32 +159,18 @@ export async function getAdminDashboardAssignments(supabase: Client): Promise<As
     query: "admin assignments query",
   });
 
-  // Supabase/PostgREST limits a single response to a maximum page size. Fetch
-  // every page so recent assignments aren't silently omitted once the table
-  // grows beyond that limit.
-  const assignments: Database["public"]["Tables"]["assignments"]["Row"][] = [];
-  for (let from = 0; ; from += ASSIGNMENTS_PAGE_SIZE) {
-    const { data, error } = await supabase
-      .from("assignments")
-      .select("*")
-      .eq("hidden_from_admin_dashboard", false)
-      .eq("distribution_present", true)
-      .order("id", { ascending: true })
-      .range(from, from + ASSIGNMENTS_PAGE_SIZE - 1);
-
-    if (error) {
-      console.error("Admin dashboard query failed", {
-        query: "admin assignments query",
-        offset: from,
-        ...queryErrorFields(error),
-      });
-      throw error;
-    }
-
-    const page = data ?? [];
-    assignments.push(...page);
-    if (page.length < ASSIGNMENTS_PAGE_SIZE) break;
-  }
+  // Keep the existing selector semantics; only paging is shared here.
+  const assignments = await fetchAllPages(
+    (from, to) =>
+      supabase
+        .from("assignments")
+        .select("*")
+        .eq("hidden_from_admin_dashboard", false)
+        .eq("distribution_present", true)
+        .order("id", { ascending: true })
+        .range(from, to),
+    ASSIGNMENTS_PAGE_SIZE,
+  );
 
   console.error("Admin dashboard query complete", {
     query: "admin assignments query",
@@ -308,27 +287,34 @@ export async function getAdminDashboardAssignmentsForShift(
   // Split the broad OR into two selective, parallel queries. This lets Postgres
   // use the shift-date and status/distribution indexes independently instead of
   // planning one OR across today's assignments and all active work.
-  const [shiftResult, activeResult] = await Promise.all([
-    supabase
-      .from("assignments")
-      .select("*")
-      .eq("hidden_from_admin_dashboard", false)
-      .eq("shift_date", shiftDate)
-      .eq("distribution_present", true)
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("assignments")
-      .select("*")
-      .eq("hidden_from_admin_dashboard", false)
-      .or('status.eq."In Progress",and(status.eq."Overdue",distribution_present.eq.true)')
-      .order("created_at", { ascending: false }),
+  const [shiftAssignments, activeAssignments] = await Promise.all([
+    fetchAllPages((from, to) =>
+      supabase
+        .from("assignments")
+        .select("*")
+        .eq("hidden_from_admin_dashboard", false)
+        .eq("shift_date", shiftDate)
+        .eq("distribution_present", true)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to),
+      ASSIGNMENTS_PAGE_SIZE,
+    ),
+    fetchAllPages((from, to) =>
+      supabase
+        .from("assignments")
+        .select("*")
+        .eq("hidden_from_admin_dashboard", false)
+        .or('status.eq."In Progress",and(status.eq."Overdue",distribution_present.eq.true)')
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to),
+      ASSIGNMENTS_PAGE_SIZE,
+    ),
   ]);
 
-  if (shiftResult.error) throw shiftResult.error;
-  if (activeResult.error) throw activeResult.error;
-
   const uniqueAssignments = new Map<string, Database["public"]["Tables"]["assignments"]["Row"]>();
-  for (const assignment of [...(shiftResult.data ?? []), ...(activeResult.data ?? [])]) {
+  for (const assignment of [...shiftAssignments, ...activeAssignments]) {
     uniqueAssignments.set(assignment.id, assignment);
   }
 
