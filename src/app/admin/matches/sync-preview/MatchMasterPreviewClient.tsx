@@ -168,19 +168,29 @@ export function MatchMasterPreviewClient() {
                 const response = await fetch("/api/admin/matches/sync-preview", { method: "POST" });
                 const payload = await response.json() as {
                   error?: string;
-                  preview?: PreviewData;
-                  changeCheck?: ChangeCheck;
-                  sync?: { changedRows?: number; sourceRows?: number; upsertedRows?: number; deletedStaleRows?: number };
+                  message?: string;
+                  sync?: {
+                    changedRows?: number;
+                    sourceRows?: number;
+                    upsertedRows?: number;
+                    deletedStaleRows?: number;
+                    activeWindow?: { startDate: string; endDate: string; matchCount: number; warning?: string | null } | null;
+                  };
                 };
-                if (!response.ok || !payload.preview || !payload.changeCheck) {
+                if (!response.ok || !payload.sync) {
                   throw new Error(payload.error ?? "Unable to check and update Match Master details.");
                 }
-                setData(payload.preview);
-                setChangeCheck(payload.changeCheck);
+
+                // Reload the read-only preview after the cache write has completed.
+                // This prevents the UI from showing a temporary empty change list
+                // that reappears when the page is reopened.
+                await loadPreviewSnapshot();
                 setApplyResult(
-                  "Match Master refreshed: " + (payload.sync?.changedRows ?? 0) +
-                  " existing matches updated, " + (payload.sync?.sourceRows ?? 0) +
-                  " source rows in the latest 7 ETA days checked. No full-sheet match rows were downloaded."
+                  "Match Master synchronized: " + (payload.sync.changedRows ?? 0) +
+                  " existing matches updated, " + (payload.sync.upsertedRows ?? 0) +
+                  " cache rows inserted/updated, " + (payload.sync.sourceRows ?? 0) +
+                  " source matches checked. ETA days are now refreshed from the updated cache." +
+                  (payload.sync.activeWindow?.warning ? " Warning: " + payload.sync.activeWindow.warning : "")
                 );
               } catch (reason: unknown) {
                 setApplyResult(reason instanceof Error ? reason.message : "Unable to refresh Match Master details.");
