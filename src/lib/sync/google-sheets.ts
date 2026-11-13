@@ -604,8 +604,15 @@ function normalizeDistributionHeader(value: unknown): string {
 }
 
 export function normalizeDistributionCollectorHrCode(value: unknown): string | null {
-  const hrCode = String(value ?? "").trim();
-  return hrCode ? hrCode.toUpperCase() : null;
+  // Google Sheets cells can contain invisible bidi/formatting marks copied
+  // from RTL text. Remove Unicode format controls before matching HR codes.
+  const hrCode = String(value ?? "")
+    .normalize("NFKC")
+    .replace(/[\\p{Cf}\\u200B-\\u200D\\uFEFF]/gu, "")
+    .replace(/[\\s\\u00A0]+/g, "")
+    .trim()
+    .toUpperCase();
+  return hrCode || null;
 }
 
 type DistributionHeaderIndexes = { id: number; hr: number; task: number; half: number };
