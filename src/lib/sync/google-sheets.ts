@@ -608,8 +608,8 @@ export function normalizeDistributionCollectorHrCode(value: unknown): string | n
   // from RTL text. Remove Unicode format controls before matching HR codes.
   const hrCode = String(value ?? "")
     .normalize("NFKC")
-    .replace(/[\\p{Cf}\\u200B-\\u200D\\uFEFF]/gu, "")
-    .replace(/[\\s\\u00A0]+/g, "")
+    .replace(/[\p{Cf}\u200B-\u200D\uFEFF]/gu, "")
+    .replace(/[\s\u00A0]+/g, "")
     .trim()
     .toUpperCase();
   return hrCode || null;
