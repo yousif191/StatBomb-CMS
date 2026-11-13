@@ -70,7 +70,7 @@ export async function POST(request: Request) {
   const runId = runInsert.data.id;
   try {
     const contextStartedAt = Date.now();
-    const context = await loadPreviewContext(serviceClient);
+    const context = await loadPreviewContext(serviceClient, pull.rows);
     console.info("[sync.run] database_context_loaded", {
       duration_ms: Date.now() - contextStartedAt,
       assignment_count: context.assignments.length,
@@ -105,7 +105,9 @@ export async function POST(request: Request) {
     // Presence reconciliation can mark many assignments as removed from the
     // sheet. Never do that from an empty, truncated, or broadly invalid snapshot.
     const unsafeSnapshotReason =
-      pull.rows.rows.length >= maxRows
+      pull.complete !== true
+        ? "source_read_incomplete"
+        : pull.rows.rows.length >= maxRows
         ? "source_row_limit_reached"
         : distributionRows.length === 0 && previouslyPresentCount > 0
           ? "no_valid_distribution_identities"
