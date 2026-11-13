@@ -630,7 +630,7 @@ function matchesDistributionIdentity(
   row: unknown[],
   indexes: DistributionHeaderIndexes,
   matchId: string,
-  collectorHrCode: string,
+  collectorHrCode: string | null,
   task: string,
   half: string,
 ): boolean {
