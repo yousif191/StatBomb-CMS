@@ -8,7 +8,7 @@
 export const DEFAULT_POSTGREST_PAGE_SIZE = 1000;
 
 export async function fetchAllPages<T>(
-  fetchPage: (from: number, to: number) => Promise<{
+  fetchPage: (from: number, to: number) => PromiseLike<{
     data: T[] | null;
     error: unknown | null;
   }>,
