@@ -93,10 +93,6 @@ export async function POST(request: Request) {
     });
 
     const reconcileStartedAt = Date.now();
-    const configuredMaxRows = Number(process.env.GOOGLE_SHEETS_MAX_ROWS ?? "10000");
-    const maxRows = Number.isInteger(configuredMaxRows) && configuredMaxRows > 0
-      ? Math.min(configuredMaxRows, 100_000)
-      : 500;
     const previouslyPresentCount = context.assignments.filter((assignment) => assignment.distribution_present).length;
     const invalidRowRatio = result.summary.total_rows > 0
       ? result.summary.rows_errored / result.summary.total_rows
@@ -107,8 +103,6 @@ export async function POST(request: Request) {
     const unsafeSnapshotReason =
       pull.complete !== true
         ? "source_read_incomplete"
-        : pull.rows.rows.length >= maxRows
-        ? "source_row_limit_reached"
         : distributionRows.length === 0 && previouslyPresentCount > 0
           ? "no_valid_distribution_identities"
           : invalidRowRatio > 0.2
