@@ -210,14 +210,34 @@ async function findConfiguredSheet(
     return text || null;
   }
 
-  export async function readMatchesMasterSheet(): Promise<MatchMasterRow[]> {
-    const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
+  function matchMasterSheetConfig() {
+  const isTest = Boolean(process.env.TEST_SUPABASE_URL);
+  return isTest
+    ? {
+        spreadsheetId: required("TEST_GOOGLE_SHEETS_SPREADSHEET_ID"),
+        gidVariable: "TEST_GOOGLE_SHEETS_MATCHES_T_GID",
+        tabVariable: "TEST_GOOGLE_SHEETS_MATCHES_T_TAB",
+        fallbackGid: "1821199165",
+        fallbackTitle: "Matches (T)",
+      }
+    : {
+        spreadsheetId: required("GOOGLE_SHEETS_SPREADSHEET_ID"),
+        gidVariable: "GOOGLE_SHEETS_MATCHES_GID",
+        tabVariable: "GOOGLE_SHEETS_MATCHES_TAB",
+        fallbackGid: "1180574881",
+        fallbackTitle: "Matches (T)",
+      };
+}
+
+export async function readMatchesMasterSheet(): Promise<MatchMasterRow[]> {
+    const config = matchMasterSheetConfig();
+    const { spreadsheetId, gidVariable, tabVariable, fallbackGid, fallbackTitle } = config;
     const sheet = await findConfiguredSheet(
       spreadsheetId,
-      "GOOGLE_SHEETS_MATCHES_GID",
-      "GOOGLE_SHEETS_MATCHES_TAB",
-      "1180574881",
-      "Matches (T)"
+      gidVariable,
+      tabVariable,
+      fallbackGid,
+      fallbackTitle
     );
     const payload = await googleRequest<{ values?: unknown[][] }>(
       `${GOOGLE_SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(`${sheet.title}!A:V`)}`
@@ -286,13 +306,14 @@ async function findConfiguredSheet(
 }
 
 export async function readMatchesMasterSheetForPreview(): Promise<MatchMasterPreviewRow[]> {
-  const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
+  const config = matchMasterSheetConfig();
+  const { spreadsheetId, gidVariable, tabVariable, fallbackGid, fallbackTitle } = config;
   const sheet = await findConfiguredSheet(
     spreadsheetId,
-    "GOOGLE_SHEETS_MATCHES_GID",
-    "GOOGLE_SHEETS_MATCHES_TAB",
-    "1180574881",
-    "Matches (T)"
+    gidVariable,
+    tabVariable,
+    fallbackGid,
+    fallbackTitle
   );
   const payload = await googleRequest<{ values?: unknown[][] }>(
     `${GOOGLE_SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(`${sheet.title}!A:V`)}`
@@ -1526,10 +1547,10 @@ export async function readFfShots2026Sheet(): Promise<FfShotSheetSourceRow[]> {
  * fetched only for qualifying rows using one values:batchGet request.
  */
 export async function readMatchesMasterSheetForEtaWindow(days = 7): Promise<MatchMasterPreviewRow[]> {
-  const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
+  const config = matchMasterSheetConfig();
+  const { spreadsheetId, gidVariable, tabVariable, fallbackGid, fallbackTitle } = config;
   const sheet = await findConfiguredSheet(
-    spreadsheetId, "GOOGLE_SHEETS_MATCHES_GID", "GOOGLE_SHEETS_MATCHES_TAB",
-    "1180574881", "Matches (T)"
+    spreadsheetId, gidVariable, tabVariable, fallbackGid, fallbackTitle
   );
   const base = `${GOOGLE_SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values`;
   const [headerPayload, etaPayload] = await Promise.all([
