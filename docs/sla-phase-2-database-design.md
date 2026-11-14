@@ -236,3 +236,21 @@ Advisor note: Supabase reports `rls_enabled_no_policy` INFO for the two new tabl
 - [x] Aligned Phase 3 migration filenames with the actual Testing remote versions: `20261114183430`, `20261114183738`, and `20261114183842`.
 - [x] The due-event worker was accidentally applied twice to Testing through the migration tool. Both applications used the same idempotent `CREATE OR REPLACE FUNCTION` definition and the live function was verified. The second remote version `20261114183818` is represented in the branch by a comment-only no-op migration so future local/remote history comparison does not attempt to replay or invent a schema change.
 - [ ] Do not run a blind `supabase db push`: the repository still has pre-existing duplicate `0028` migration filenames and older remote/local history drift. Use the explicit migration list and reconcile each target before the eventual Production cutover.
+
+
+## Final notification-scope clarification — 14 Nov 2026
+
+The product decision is to retire all ordinary Admin/Collector notifications and retain only the in-site SLA alarm. Therefore:
+- `assignment_sla_events` is the authoritative durable ledger for SLA Warning/Overdue processing.
+- The event worker marks Warning events `sent`; it does not insert rows into `notifications` and does not use push delivery.
+- The existing `notifications.sla_event_id` nullable column/index from Phase 2 is currently unused compatibility schema. It is retained to avoid unnecessary schema churn; historical notification records are not deleted.
+- The browser alarm read RPC is scoped to the signed-in Admin/Collector and reads only the active generation's sent Warning event.
+- Generation is included in the browser silencing key, so reassigning or rescheduling creates a fresh alarm identity.
+
+## Additional RPC-path tests — 14 Nov 2026
+
+- [x] Called the real `reassign_assignment` RPC under an Admin JWT context; confirmed `collector_reassigned` generation, immediate Warning event processing, activity log creation, and no notification-row insertion.
+- [x] Called the real `update_assignment` RPC to move an Overdue assignment's SLA into the future; confirmed automatic restoration to Not Started and creation of a new active schedule.
+- [x] Called the real `hide_assignment_from_dashboard` RPC; confirmed the active schedule is cancelled with `admin_hidden` reason.
+- [x] Called the real `reconcile_distribution_presence` RPC under a service-role JWT context; confirmed removal from Distribution cancels the schedule with `distribution_removed` reason.
+- [x] All synthetic assignment changes in these tests were rolled back.
