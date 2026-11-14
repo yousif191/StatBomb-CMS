@@ -216,3 +216,16 @@ Advisor note: Supabase reports `rls_enabled_no_policy` INFO for the two new tabl
 - [ ] Legacy evaluator is still active and must remain so until the Testing Preview cutover is validated.
 
 **Phase 3 status: schedule lifecycle, due-only worker, and event-backed alarm read path are implemented and database-smoke-tested on Testing.**
+
+
+## Phase 3D / Testing worker routing — 14 Nov 2026
+
+- [x] Existing `/api/cron/sla-scan` endpoint now selects the durable event worker automatically when the branch-scoped `TEST_SUPABASE_URL` is present.
+- [x] Added an explicit `SLA_ENGINE_MODE=events` switch for the eventual Production cutover. Without that flag and without test mode, Production continues to call the legacy evaluator.
+- [x] Verified Vercel Preview environment variables for `feat/sla-scheduling-rebuild` point to the isolated Testing Supabase project; server and browser clients both have test-specific configuration and fail closed if partially configured.
+- [x] Confirmed the external cron remains the single scheduler; no Vercel Cron or second scheduler was added.
+- [x] Preview build for commit `ee7908de` reached READY after adding the worker RPC type. The earlier commit `a8cbbdb` failed type-check because the worker RPC type had not yet landed; this was corrected in the subsequent commit.
+- [x] Transactional RPC test verified both Collector and Admin alarm scopes return the active sent generation. Test data was rolled back.
+- [ ] The current latest commit adds the explicit cutover flag; its Vercel Preview build is still running. Browser verification of the new event-backed alarm path remains pending.
+
+**Safety rule:** Production stays on the legacy evaluator until the dedicated cutover phase. The Production migration history and environment variables have not been changed.
