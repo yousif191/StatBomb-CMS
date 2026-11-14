@@ -58,14 +58,44 @@ async function runScan(request: NextRequest) {
 
   try {
     const supabase = createServiceRoleClient();
-    const isTestEngine = isSlaTestEnvironment();
-    const { data, error } = isTestEngine
-      ? await supabase.rpc("process_assignment_sla_events", { p_batch_size: 100 })
-      : await supabase.rpc("evaluate_assignment_sla_states");
+    const durationMs = Date.now() - startedAt;
 
+    if (isSlaTestEnvironment()) {
+      const { data, error } = await supabase.rpc("process_assignment_sla_events", {
+        p_batch_size: 100,
+      });
+      if (error) {
+        console.error("[sla-scan] event worker failed", {
+          message: error.message,
+          code: error.code,
+          durationMs: Date.now() - startedAt,
+        });
+        return NextResponse.json({ error: "sla_scan_failed" }, { status: 500 });
+      }
+
+      const result = data?.[0] ?? {
+        processed: 0,
+        warnings_sent: 0,
+        overdue_marked: 0,
+        cancelled: 0,
+        skipped: 0,
+        prechecked: 0,
+      };
+      console.info("[sla-scan] event worker completed", {
+        ...result,
+        durationMs: Date.now() - startedAt,
+      });
+      return NextResponse.json({
+        ok: true,
+        engine: "event_queue",
+        ...result,
+        durationMs: Date.now() - startedAt,
+      });
+    }
+
+    const { data, error } = await supabase.rpc("evaluate_assignment_sla_states");
     if (error) {
-      // Log server-side detail; return nothing internal to the caller.
-      console.error("[sla-scan] rpc failed", {
+      console.error("[sla-scan] legacy evaluator failed", {
         message: error.message,
         code: error.code,
         durationMs: Date.now() - startedAt,
@@ -73,29 +103,18 @@ async function runScan(request: NextRequest) {
       return NextResponse.json({ error: "sla_scan_failed" }, { status: 500 });
     }
 
-    const durationMs = Date.now() - startedAt;
-
-    if (isTestEngine) {
-      const result = data?.[0] ?? {
-        processed: 0, warnings_sent: 0, overdue_marked: 0,
-        cancelled: 0, skipped: 0, prechecked: 0,
-      };
-      console.info("[sla-scan] event worker completed", { ...result, durationMs });
-      return NextResponse.json({ ok: true, engine: "event_queue", ...result, durationMs });
-    }
-
     const result = data?.[0] ?? { warnings_fired: 0, overdue_fired: 0 };
     console.info("[sla-scan] legacy evaluator completed", {
       warningsFired: result.warnings_fired,
       overdueFired: result.overdue_fired,
-      durationMs,
+      durationMs: Date.now() - startedAt,
     });
     return NextResponse.json({
       ok: true,
       engine: "legacy",
       warningsFired: result.warnings_fired,
       overdueFired: result.overdue_fired,
-      durationMs,
+      durationMs: Date.now() - startedAt,
     });
   } catch (cause) {
     // Covers a missing SUPABASE_SERVICE_ROLE_KEY, network failure, etc. A
