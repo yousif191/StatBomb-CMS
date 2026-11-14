@@ -263,3 +263,14 @@ The product decision is to retire all ordinary Admin/Collector notifications and
 - [x] Verified the Warning event ended `sent` with `attempt_count=1`, while the future Overdue event remained pending.
 - [x] Deleted the temporary assignment after the test and verified its schedule and event rows were cascade-cleaned. No synthetic assignment/schedule/event rows remain.
 - [x] A separate simulated transaction interruption rolled back the worker's event state; the next worker invocation retried and completed the event successfully.
+
+
+## Reversible dual-engine rollout — 14 Nov 2026
+
+- [x] Kept the legacy `get_sla_alert_assignments` RPC available for rollback.
+- [x] Added separate event-backed `get_sla_alarm_event_assignments` RPC with active-generation filtering.
+- [x] Preview automatically uses the event RPC through `NEXT_PUBLIC_TEST_SUPABASE_URL`; Production defaults to the legacy RPC until `NEXT_PUBLIC_SLA_ENGINE_MODE=events`.
+- [x] The cron route similarly uses the event worker on Testing or when `SLA_ENGINE_MODE=events`; Production otherwise stays on the legacy evaluator.
+- [x] Verified both RPCs remain available to authenticated users, anon cannot call either, and both legacy and event paths return the expected assignment in a rolled-back synthetic test.
+- [x] Added `docs/sla-production-cutover-runbook.md` with migration order, environment flags, single-cron requirement, preflight checks, and rollback steps.
+- [ ] Production cutover is intentionally not executed. Both engine flags remain unset in Production.
