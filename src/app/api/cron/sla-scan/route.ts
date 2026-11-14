@@ -60,7 +60,8 @@ async function runScan(request: NextRequest) {
     const supabase = createServiceRoleClient();
     const durationMs = Date.now() - startedAt;
 
-    if (isSlaTestEnvironment()) {
+    const useEventEngine = isSlaTestEnvironment() || process.env.SLA_ENGINE_MODE === "events";
+    if (useEventEngine) {
       const { data, error } = await supabase.rpc("process_assignment_sla_events", {
         p_batch_size: 100,
       });
