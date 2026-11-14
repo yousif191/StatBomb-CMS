@@ -1,11 +1,8 @@
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppShell, type NavItem } from "@/components/AppShell";
 import { getProfileOrRedirect } from "@/lib/auth/getProfile";
 import { getSlaAlertItems } from "@/lib/assignments/sla-alert-queries";
-import type { SlaAlertAssignment } from "@/lib/assignments/sla-alarm";
 import { createClient } from "@/lib/supabase/server";
-import { getUnreadNotificationCount } from "@/lib/notifications/queries";
 
 const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/collector" },
@@ -18,56 +15,22 @@ const NAV_ITEMS: NavItem[] = [
   { label: "My Over Target", href: "/collector/over-target" },
   { label: "My Scorecard", href: "/collector/scorecard" },
   { label: "Links", href: "/collector/links" },
-  { label: "Notifications", href: "/collector/notifications" },
   { label: "Account Settings", href: "/collector/settings" },
 ];
 
-function isCollectorNotificationsPath(pathname: string): boolean {
-  return (
-    pathname === "/collector/notifications" ||
-    pathname.startsWith("/collector/notifications/")
-  );
-}
-
-async function loadSlaAlertAssignments(
-  supabase: ReturnType<typeof createClient>,
-): Promise<SlaAlertAssignment[]> {
-  const pathname = headers().get("x-pathname") ?? "";
-  if (isCollectorNotificationsPath(pathname)) {
-    return [];
-  }
-
-  return getSlaAlertItems(supabase, "collector");
-}
-
-export default async function CollectorLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function CollectorLayout({ children }: { children: React.ReactNode }) {
   const profile = await getProfileOrRedirect();
-
-  if (profile.role !== "collector" && profile.role !== "admin") {
-    redirect("/admin");
-  }
-
-  if (profile.deleted_at || profile.suspended_at) {
-    return children;
-  }
+  if (profile.role !== "collector" && profile.role !== "admin") redirect("/admin");
+  if (profile.deleted_at || profile.suspended_at) return children;
 
   const supabase = createClient();
-  const [unreadCount, slaAlertAssignments] = await Promise.all([
-    getUnreadNotificationCount(supabase, profile.id),
-    loadSlaAlertAssignments(supabase),
-  ]);
+  const slaAlertAssignments = await getSlaAlertItems(supabase, "collector");
 
   return (
     <AppShell
       roleLabel="Collector"
       userLabel={profile.full_name ?? profile.email}
       navItems={NAV_ITEMS}
-      notificationsHref="/collector/notifications"
-      unreadCount={unreadCount}
       role="collector"
       canSwitchWorkspace={profile.role === "admin"}
       profileId={profile.id}
