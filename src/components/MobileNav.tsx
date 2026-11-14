@@ -3,23 +3,14 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { NavItem } from "./AppShell";
-import { NotificationBell } from "./NotificationBell";
 
 interface MobileNavProps {
   roleLabel: string;
   userLabel: string;
   navItems: NavItem[];
-  notificationsHref: string;
-  unreadCount: number;
 }
 
-export function MobileNav({
-  roleLabel,
-  userLabel,
-  navItems,
-  notificationsHref,
-  unreadCount,
-}: MobileNavProps) {
+export function MobileNav({ roleLabel, userLabel, navItems }: MobileNavProps) {
   const [isOpen, setIsOpen] = useState(false);
 
   function closeMenu() {
@@ -65,19 +56,16 @@ export function MobileNav({
                 <p className="font-mono text-[11px] uppercase tracking-widest text-pitch-500">StatBomb</p>
                 <p className="mt-1 font-display text-lg text-chalk-50">Console</p>
               </div>
-              <div className="flex items-center gap-2">
-                <NotificationBell href={notificationsHref} unreadCount={unreadCount} />
-                <button
-                  type="button"
-                  onClick={closeMenu}
-                  aria-label="Close navigation menu"
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-[8px] border border-pitch-700 text-chalk-200 hover:border-clock-amber hover:text-chalk-50"
-                >
-                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-                    <path d="m6 6 12 12M18 6 6 18" />
-                  </svg>
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={closeMenu}
+                aria-label="Close navigation menu"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-[8px] border border-pitch-700 text-chalk-200 hover:border-clock-amber hover:text-chalk-50"
+              >
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+                  <path d="m6 6 12 12M18 6 6 18" />
+                </svg>
+              </button>
             </div>
 
             <nav className="flex flex-1 flex-col gap-1">
