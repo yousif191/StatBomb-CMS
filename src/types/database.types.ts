@@ -886,6 +886,18 @@ export interface Database {
         Args: Record<string, never>;
         Returns: { warnings_fired: number; overdue_fired: number }[];
       };
+      // Service-role only; processes the durable SLA event queue.
+      process_assignment_sla_events: {
+        Args: { p_batch_size?: number };
+        Returns: {
+          processed: number;
+          warnings_sent: number;
+          overdue_marked: number;
+          cancelled: number;
+          skipped: number;
+          prechecked: number;
+        }[];
+      };
       // Service-role only (push fan-out claim/lease); not callable from the client.
       claim_pending_push_notifications: {
         Args: { p_limit?: number; p_lease_seconds?: number };
