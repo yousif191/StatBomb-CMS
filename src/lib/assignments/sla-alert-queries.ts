@@ -26,5 +26,6 @@ export async function getSlaAlertItems(
     collectorName: row.collector_name,
     half: row.half,
     task: row.task,
+    generation: row.generation,
   }));
 }
