@@ -821,6 +821,20 @@ export interface Database {
           collector_name: string;
           half: string;
           task: string;
+        }[];
+      };
+      get_sla_alarm_event_assignments: {
+        Args: { p_scope: string };
+        Returns: {
+          assignment_id: string;
+          sla: string;
+          status: AssignmentStatus;
+          home_team: string;
+          away_team: string;
+          competition: string | null;
+          collector_name: string;
+          half: string;
+          task: string;
           generation: number;
         }[];
       };
