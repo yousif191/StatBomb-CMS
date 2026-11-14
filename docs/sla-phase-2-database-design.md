@@ -1,0 +1,164 @@
+# SLA Rebuild — Phase 2 Database Design
+
+**Project:** StatBomb-CMS  
+**Branch:** `feat/sla-scheduling-rebuild`  
+**Environment for implementation:** Supabase Testing (`cobunhmzrzyymjndmfvt`) only  
+**Production schema/data:** read-only; no Production migration or write is authorized.
+
+## Phase 2 goal
+
+Persist durable SLA schedule generations and Warning/Overdue events. Future processing must select only due event rows, not scan the full `assignments` table on every scheduler tick.
+
+## Approved behavior carried forward
+
+- Create a schedule when an assignment is distributed.
+- Replace the current schedule generation when its SLA or assigned Collector changes. Keep old generations as history and mark them superseded.
+- Cancel pending events when the assignment is Completed, removed from the Distribution sheet (`distribution_present = false`), or hidden from the Admin dashboard.
+- Warning is due one hour before SLA.
+- Pre-alert status check runs one minute before Warning due time; Completed cancels, Not Started/In Progress continues.
+- At actual send time, read the latest assignment state again. Completed cancels; Not Started/In Progress sends. The latest state at send time wins.
+- At or after SLA, create Overdue only; never send stale Warning and Overdue together for the same generation. If the worker resumes after both times, skip Warning and process Overdue only.
+- Reassignment to a new Collector within the final hour before SLA creates an immediate Warning for the new Collector.
+- If an Overdue assignment's SLA moves into the future, restore status to In Progress when `started_at` exists, otherwise Not Started.
+- Preserve current in-site notification cards, looping `/sounds/sla-warning.wav`, explicit sound enable, Stop Alarm, local silencing, and cross-tab single-tab audio ownership.
+- In-site alerts only. No Web Push, VAPID, service-worker push, or delivery promise while the website is closed.
+- Reuse the existing cron-job.org scanner during implementation; do not add a second scheduler.
+
+## Read-only schema audit (Testing, 14 Nov 2026)
+
+### Existing `public.assignments` fields relevant to SLA
+
+- `id uuid`, `match_id uuid`, `collector_id uuid`
+- `sla timestamptz NOT NULL`, `shift_date date`
+- `status assignment_status NOT NULL` (Not Started / In Progress / Completed / Overdue)
+- `started_at`, `completed_at`
+- `sla_warning_sent_at`, `overdue_notified_at`
+- `distribution_present boolean NOT NULL DEFAULT true`
+- `hidden_from_admin_dashboard boolean NOT NULL DEFAULT false`
+
+Existing logical identity is unique on `(match_id, task, half)`. Existing SLA index is `assignments_sla_idx` on `sla` where status is not Completed.
+
+### Existing `public.notifications`
+
+- Existing durable in-site notification table with `recipient_id`, `assignment_id`, `type`, `title`, `message`, `sent_at`, `read_at`.
+- Legacy push columns `pushed_at` and `push_claimed_at` exist. They are not part of this in-site-only rebuild.
+- Existing unique partial index `notifications_sla_warning_assignment_recipient_uidx` on `(assignment_id, recipient_id)` for `sla_warning` does not support a second warning for a later schedule generation. Phase 2 schema migration must replace this old idempotency shape with generation/event-based idempotency without deleting notification history.
+
+### Existing functions / scheduler
+
+- `evaluate_assignment_sla_states()` currently scans assignments and writes Warning/Overdue notifications. The current implementation has no upper bound on Warning, does not exclude hidden/removed assignments, and does not restore Overdue when SLA moves into the future.
+- `get_sla_alert_assignments()` is a read RPC for the current UI.
+- `claim_pending_push_notifications()` is legacy push delivery and will not be used for the new SLA flow.
+- Production currently has one external cron-job.org scanner every minute in Africa/Cairo. Testing has no `cron.job` relation / pg_cron job. Do not install or schedule another scanner in Phase 2.
+
+### Migration history / drift
+
+Production and Testing migration histories use different version identifiers. Examples:
+- `get_sla_alert_assignments_rpc`: repo timestamp `20261029202900`, Production applied as `20261029175551`.
+- `allow_start_unstarted_overdue_assignments`: repo timestamp `20261026193000`, Production applied as `20261026161259`.
+- `add_match_master_sync_lock`: repo timestamp `20261030150000`, Production applied as `20261030134217`.
+- Production has `20261030134954 create_match_master_sheet_delta`.
+- Repo has duplicate `0028` migration filenames. Do not replay old migrations or assume repo filenames match remote migration history.
+
+## Proposed schema
+
+### 1. `public.assignment_sla_schedules`
+
+One row per assignment generation. This is the immutable snapshot of the assignment's SLA routing at the time the generation was created.
+
+| Column | Type | Purpose |
+|---|---|---|
+| `id` | uuid PK | Schedule generation ID |
+| `assignment_id` | uuid FK → assignments.id | Source assignment |
+| `collector_id` | uuid FK → profiles.id | Collector for this generation |
+| `generation` | integer | Monotonically increasing generation per assignment |
+| `sla_at` | timestamptz | Exact SLA snapshot from assignments |
+| `warning_due_at` | timestamptz | Normal SLA minus one hour; may be now for immediate reassignment warning |
+| `reason` | text | distributed / sla_changed / collector_reassigned / restored |
+| `state` | text | active / superseded / cancelled / completed |
+| `cancel_reason` | text nullable | completed / distribution_removed / admin_hidden / sla_changed / collector_reassigned / replaced |
+| `created_at`, `updated_at` | timestamptz | Audit timestamps |
+| `cancelled_at`, `completed_at` | timestamptz nullable | Lifecycle timestamps |
+
+Constraints:
+- Unique `(assignment_id, generation)`.
+- At most one active schedule per assignment via partial unique index.
+- `generation >= 1`.
+- State and reason values constrained to explicit allow-lists.
+- FK deletion behavior must preserve history where possible; assignment deletion is already cascading in the current schema, so the schedule follows assignment lifecycle.
+
+### 2. `public.assignment_sla_events`
+
+Two event types per generation: Warning and Overdue. This is the durable processing queue and idempotency ledger.
+
+| Column | Type | Purpose |
+|---|---|---|
+| `id` | uuid PK | Event ID |
+| `schedule_id` | uuid FK → assignment_sla_schedules.id | Owning generation |
+| `assignment_id` | uuid FK → assignments.id | Indexed lookup / integrity |
+| `collector_id` | uuid FK → profiles.id | Intended recipient snapshot |
+| `generation` | integer | Generation snapshot |
+| `event_type` | text | warning / overdue |
+| `due_at` | timestamptz | Actual event time |
+| `precheck_at` | timestamptz | Warning: one minute before due; Overdue: due time |
+| `next_action_at` | timestamptz | Next due action; indexed queue key |
+| `state` | text | pending / prechecked / claimed / sent / cancelled / skipped |
+| `attempt_count` | integer | Retry counter |
+| `claimed_at`, `lease_expires_at` | timestamptz nullable | Atomic worker claim / recovery |
+| `prechecked_at`, `sent_at`, `cancelled_at` | timestamptz nullable | Lifecycle timestamps |
+| `cancel_reason`, `last_error` | text nullable | Diagnostics |
+| `created_at`, `updated_at` | timestamptz | Audit timestamps |
+
+Constraints and indexes:
+- Unique `(assignment_id, collector_id, generation, event_type)` — one event of each type per Collector and generation.
+- Check constraints for event type, state, and non-negative attempt count.
+- Partial B-tree index on `next_action_at` for rows in pending/prechecked states; scheduler reads only due rows.
+- Index on `assignment_id` and `schedule_id`.
+- Lease expiry supports safe reclaim after worker failure.
+
+### 3. Link existing in-site notifications to the event
+
+Add nullable `notifications.sla_event_id` FK to `assignment_sla_events.id`, plus a unique partial index on non-null `sla_event_id`. This gives a strict one-event-to-one-notification link and supports durable reconnect without relying on push columns.
+
+Replace the legacy warning uniqueness index `(assignment_id, recipient_id)` with event-based uniqueness only in the Testing migration. Do not delete or rewrite existing notification rows. This is necessary because a later generation can legitimately warn the same Collector again.
+
+## Processing and transaction design
+
+1. Schedule creation/replacement and cancellation must happen in the same database transaction as the assignment mutation. Phase 3 will cover all assignment mutation paths, preferably through one database trigger/helper rather than scattered client-side writes.
+2. Replacing a schedule locks the assignment row, supersedes the previous active generation, cancels its pending events, increments generation, inserts the new schedule and its Warning/Overdue events.
+3. Worker claims due events in bounded batches using row locks with `FOR UPDATE SKIP LOCKED` and a short lease. No full Assignments scan.
+4. Before Warning due, worker reads the latest assignment row and verifies: not Completed, distribution present, not hidden, schedule generation still active, and current Collector/SLA still match the snapshot.
+5. At actual send time, worker reads the assignment again immediately before inserting the in-site notification. This is the authoritative check.
+6. Notification insert and event state transition to sent must be atomic. Unique `sla_event_id` prevents duplicate notification rows on retries.
+7. If the event is overdue and current SLA has moved into the future, the schedule is replaced and assignment status is restored from started_at.
+8. If a worker crashes after claiming, lease expiry makes the event reclaimable. Retries must be idempotent.
+
+## Security model
+
+- Both new tables have RLS enabled.
+- No direct `anon` or `authenticated` table grants or client policies; these are server-internal queue/history tables.
+- Grant only the minimum required table privileges to `service_role`.
+- Server worker uses the Testing service-role key only in server-side code.
+- Any SECURITY DEFINER helper must have a fixed safe search_path, explicit role checks, and narrowly scoped EXECUTE grants. No blanket revokes or blanket grants.
+- Existing notifications RLS remains the user-facing boundary: Collector reads own notifications; Admin retains current approved visibility.
+
+## Migration plan
+
+1. Add the two internal tables, constraints, and indexes on Testing only.
+2. Add `notifications.sla_event_id` and event-based uniqueness; preserve all existing notification rows.
+3. Verify RLS, grants, FK behavior, due-query index, and idempotency with synthetic Testing-only records.
+4. Keep the legacy evaluator and external cron unchanged until Phase 3/4 cutover is ready. Do not run both old and new notification processors against the same assignments.
+5. Generate the repository migration using the Supabase CLI workflow, reconcile its version with Testing's remote migration history, and commit only on `feat/sla-scheduling-rebuild`.
+6. Never apply this migration to Production during implementation.
+
+## Open implementation detail for Phase 3
+
+Immediate reassignment warning within the final hour has no one-minute precheck interval. The worker must perform the eligibility check and final latest-state check back-to-back before creating the notification, without delaying the immediate warning by a minute.
+
+## Phase 2 exit criteria
+
+- Design reviewed against live schema and approved behavior.
+- Migration is prepared and applied only to Testing.
+- RLS, grants, constraints, indexes, and idempotency verified.
+- No Production schema/data/cron/environment changes.
+- No new scheduler installed.
