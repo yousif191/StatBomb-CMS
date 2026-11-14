@@ -11,6 +11,7 @@ export interface SlaAlertAssignment {
   collectorName: string;
   half: string;
   task: string;
+  generation?: number;
 }
 
 export const SLA_WARNING_LEAD_MS = 60 * 60 * 1000;
@@ -31,11 +32,12 @@ export function toSlaAlertItems(
       collectorName: collectorNameFor(assignment.collector_id),
       half: assignment.half,
       task: assignment.task,
+      generation: 0,
     }));
 }
 
-export function warningEventId(assignment: Pick<SlaAlertAssignment, "assignmentId" | "sla">): string {
-  return `${assignment.assignmentId}:${assignment.sla}`;
+export function warningEventId(assignment: Pick<SlaAlertAssignment, "assignmentId" | "sla" | "generation">): string {
+  return `${assignment.assignmentId}:${assignment.sla}:${assignment.generation ?? 0}`;
 }
 
 export function isSlaWarningActive(
