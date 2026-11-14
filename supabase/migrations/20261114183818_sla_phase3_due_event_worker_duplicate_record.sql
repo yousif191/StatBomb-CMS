@@ -1,0 +1,4 @@
+-- This no-op migration mirrors the second idempotent application of
+-- sla_phase3_due_event_worker recorded on Testing as version 20261114183818.
+-- The function definition is already installed by 20261114183738.
+-- Keep this version represented so local and remote migration histories align.
