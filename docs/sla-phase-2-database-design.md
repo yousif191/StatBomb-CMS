@@ -229,3 +229,10 @@ Advisor note: Supabase reports `rls_enabled_no_policy` INFO for the two new tabl
 - [ ] The current latest commit adds the explicit cutover flag; its Vercel Preview build is still running. Browser verification of the new event-backed alarm path remains pending.
 
 **Safety rule:** Production stays on the legacy evaluator until the dedicated cutover phase. The Production migration history and environment variables have not been changed.
+
+
+## Testing migration-history reconciliation — 14 Nov 2026
+
+- [x] Aligned Phase 3 migration filenames with the actual Testing remote versions: `20261114183430`, `20261114183738`, and `20261114183842`.
+- [x] The due-event worker was accidentally applied twice to Testing through the migration tool. Both applications used the same idempotent `CREATE OR REPLACE FUNCTION` definition and the live function was verified. The second remote version `20261114183818` is represented in the branch by a comment-only no-op migration so future local/remote history comparison does not attempt to replay or invent a schema change.
+- [ ] Do not run a blind `supabase db push`: the repository still has pre-existing duplicate `0028` migration filenames and older remote/local history drift. Use the explicit migration list and reconcile each target before the eventual Production cutover.
