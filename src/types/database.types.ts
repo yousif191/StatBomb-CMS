@@ -821,6 +821,7 @@ export interface Database {
           collector_name: string;
           half: string;
           task: string;
+          generation: number;
         }[];
       };
       is_admin: {
