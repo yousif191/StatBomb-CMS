@@ -422,7 +422,7 @@ export async function pullTeamSheet(): Promise<TeamSheetCollector[]> {
     const { data, error } = await supabase
       .from("profiles")
       .select("hr_code, full_name, email, phone, team, status")
-      .eq("role", "collector")
+      .in("role", ["collector", "admin"])
       .is("deleted_at", null)
       .is("suspended_at", null)
       .order("hr_code", { ascending: true });
