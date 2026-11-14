@@ -77,3 +77,11 @@ This rollback preserves the user's decision to keep the in-site SLA alarm while 
 - No Production Vercel environment variable has been changed.
 - No cron-job.org schedule or URL has been changed.
 - No Production deployment, merge, or domain promotion has been performed.
+
+## Current Testing checkpoint — 14 Nov 2026
+
+- The code commit `1d170cfe` reached Vercel Preview state `READY`; `npm run build` completed, TypeScript checking passed, and the Preview login route returned HTTP 200.
+- Testing database migrations through `20261114184806` are applied and aligned to the branch migration filenames.
+- Database smoke tests cover triggers, worker state transitions, one-minute precheck, latest-state validation, no stale Warning after SLA, reassignment within the final hour, completion/removal/hide cancellation, SLA extension from Overdue, retry after transaction rollback, and two concurrent workers.
+- Temporary test rows were removed/rolled back. Testing currently has zero active schedules/events because its current assignment fixture set is entirely Completed.
+- Remaining acceptance gate: sign in to the Preview app and verify the event-backed alarm UI/audio with a newly distributed Testing assignment. The assistant does not have the user's application login credentials to perform that authenticated browser action.
