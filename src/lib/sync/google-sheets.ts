@@ -111,6 +111,16 @@ async function serviceAccountToken(): Promise<string> {
 type SpreadsheetSheet = { properties?: { sheetId?: number; title?: string } };
 
 export async function googleRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
+  // On the SLA testing branch, the generic integration is prohibited from
+  // touching any spreadsheet except the dedicated test workbook. The SLA test
+  // adapter uses this same request helper with its fixed, guarded workbook ID.
+  const testSpreadsheetId = process.env.TEST_SUPABASE_URL
+    ? "1aWy8wMquLBR0jROfg0n9k4ONSvVu2sjPGpf-JjgeJ8M"
+    : null;
+  if (testSpreadsheetId && !url.includes(encodeURIComponent(testSpreadsheetId))) {
+    throw new PreviewInputError("Production Google Sheets access is disabled in the SLA test environment.");
+  }
+
   const token = await serviceAccountToken();
   const response = await fetch(url, {
     ...init,
