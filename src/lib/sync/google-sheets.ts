@@ -9,6 +9,7 @@ import {
 } from "@/lib/sync/distribution-identity";
 import { PREVIEW_LIMITS, PreviewInputError } from "@/lib/sync/preview";
 import { normalizeEtaDate } from "@/lib/match-master-date";
+import { createServiceRoleClient } from "@/lib/supabase/server";
 
 export const normalizeMatchId = normalizeMatchIdValue;
 export const normalizeDistributionTask = normalizeDistributionTaskValue;
@@ -39,6 +40,24 @@ function required(name: string): string {
 function normalizedSheetName(value?: string | null): string {
   return (value ?? "").trim();
 }
+function distributionSheetConfig() {
+  return process.env.TEST_SUPABASE_URL
+    ? {
+        spreadsheetId: required("TEST_GOOGLE_SHEETS_SPREADSHEET_ID"),
+        sheetName: normalizedSheetName(process.env.TEST_GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution"),
+        gidVariable: "TEST_GOOGLE_SHEETS_DISTRIBUTION_GID",
+        tabVariable: "TEST_GOOGLE_SHEETS_DISTRIBUTION_TAB",
+        fallbackGid: "1488672064",
+      }
+    : {
+        spreadsheetId: required("GOOGLE_SHEETS_SPREADSHEET_ID"),
+        sheetName: normalizedSheetName(process.env.GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution"),
+        gidVariable: "GOOGLE_SHEETS_DISTRIBUTION_GID",
+        tabVariable: "GOOGLE_SHEETS_DISTRIBUTION_TAB",
+        fallbackGid: "0",
+      };
+}
+
 
 function safeGoogleError(status: number): never {
   if (status === 401 || status === 403) {
@@ -395,6 +414,35 @@ export type CollectorSheetValues = {
 export type TeamSheetCollector = CollectorSheetValues;
 
 export async function pullTeamSheet(): Promise<TeamSheetCollector[]> {
+  // The isolated test workbook intentionally contains only Distribution and
+  // Matches (T). Use Testing profiles as the collector directory; never fall
+  // back to the production Team tab from this branch.
+  if (process.env.TEST_SUPABASE_URL) {
+    const supabase = createServiceRoleClient();
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("hr_code, full_name, email, phone, team, status")
+      .eq("role", "collector")
+      .is("deleted_at", null)
+      .is("suspended_at", null)
+      .order("hr_code", { ascending: true });
+    if (error) throw new PreviewInputError("Testing collector profiles could not be loaded.");
+    return (data ?? []).flatMap((row) => {
+      const hrCode = String(row.hr_code ?? "").trim().toUpperCase();
+      const fullName = String(row.full_name ?? "").trim();
+      const email = String(row.email ?? "").trim().toLowerCase();
+      if (!hrCode || !fullName || !email) return [];
+      return [{
+        hr_code: hrCode,
+        full_name: fullName,
+        email,
+        phone: row.phone ? String(row.phone) : null,
+        team: row.team ? String(row.team) : null,
+        status: row.status ? String(row.status) : null,
+      }];
+    });
+  }
+
   const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
   const gid = Number(process.env.GOOGLE_SHEETS_TEAM_GID ?? "1216279434");
   if (!Number.isInteger(gid)) throw new PreviewInputError("Google Sheets Team tab configuration is invalid.");
@@ -403,7 +451,7 @@ export async function pullTeamSheet(): Promise<TeamSheetCollector[]> {
     `${GOOGLE_SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(`${sheet.title}!A:Z`)}`
   );
   const matrix = payload.values ?? [];
-  const normalizeHeader = (value: unknown) => String(value ?? "").trim().toLowerCase().replace(/[-_]+/g, " ").replace(/\s+/g, " ");
+  const normalizeHeader = (value: unknown) => String(value ?? "").trim().toLowerCase().replace(/[-_]+/g, " ").replace(/\\s+/g, " ");
   const headers = (matrix[0] ?? []).map(normalizeHeader);
   const indexFor = (aliases: string[]) => headers.findIndex((header) => aliases.includes(header));
   const indexes = {
@@ -417,7 +465,7 @@ export async function pullTeamSheet(): Promise<TeamSheetCollector[]> {
   if (indexes.hr_code < 0 || indexes.full_name < 0 || indexes.email < 0) {
     throw new PreviewInputError("The Team sheet is missing HR-Code, Name, or Email headers.");
   }
-  const clean = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim();
+  const clean = (value: unknown) => String(value ?? "").replace(/\\s+/g, " ").trim();
   return matrix.slice(1)
     .filter((row) => row.some((value) => clean(value)))
     .map((row) => ({
@@ -503,8 +551,9 @@ export async function deleteCollectorFromTeamSheetByHrCode(hrCode: string): Prom
 }
 
 export async function pullDistributionSheet(): Promise<GoogleSheetsPull> {
-  const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
-  const sheetName = normalizedSheetName(process.env.GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution");
+  const config = distributionSheetConfig();
+  const { spreadsheetId, sheetName, gidVariable, tabVariable, fallbackGid } = config;
+  const sheet = await findConfiguredSheet(spreadsheetId, gidVariable, tabVariable, fallbackGid, "Distribution");
   const headerRow = Number(process.env.GOOGLE_SHEETS_HEADER_ROW ?? "1");
   const configuredMaxRows = Number(process.env.GOOGLE_SHEETS_MAX_ROWS ?? "10000");
   const maxRows =
@@ -526,12 +575,7 @@ export async function pullDistributionSheet(): Promise<GoogleSheetsPull> {
   const range = `${sheetName}!A${headerRow}:Z${headerRow + maxRows}`;
   const url = new URL(`${GOOGLE_SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}`);
   if (!serviceAccountConfigured && apiKey) url.searchParams.set("key", apiKey);
-  const headers: HeadersInit = serviceAccountConfigured
-    ? { authorization: `Bearer ${await serviceAccountToken()}` }
-    : {};
-  const response = await fetch(url, { headers, cache: "no-store" });
-  if (!response.ok) safeGoogleError(response.status);
-  const payload = (await response.json()) as { values?: unknown[][] };
+  const payload = await googleRequest<{ values?: unknown[][] }>(url.toString());
   const values = payload.values ?? [];
   if (values.length === 0) throw new PreviewInputError("The Distribution sheet is empty.");
   if (values.length > maxRows + 1) {
@@ -619,7 +663,7 @@ async function readDistributionSheetRange(
   range: string,
   valueRenderOption: "FORMATTED_VALUE" | "FORMULA" = "FORMATTED_VALUE",
 ): Promise<unknown[][]> {
-  const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
+  const { spreadsheetId } = distributionSheetConfig();
   const url = new URL(`${GOOGLE_SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}`);
   url.searchParams.set("valueRenderOption", valueRenderOption);
   const payload = await googleRequest<{ values?: unknown[][] }>(url.toString());
@@ -701,8 +745,8 @@ export async function createDistributionAssignments(inputs: DistributionCreateIn
     pendingKeys.add(key);
   }
 
-  const sheetName = normalizedSheetName(process.env.GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution");
-  const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
+  const { sheetName } = distributionSheetConfig();
+  const { spreadsheetId } = distributionSheetConfig();
   const created: DistributionMatchRow[] = [];
 
   // Re-read after every insert/write so subsequent assignments use current row numbers.
@@ -849,7 +893,7 @@ export async function updateDistributionRow(input: DistributionUpdateInput): Pro
   // Keep custom Distribution tasks editable; the sheet is the source of truth
   // for task scopes and they must not be rejected by a stale frontend options list.
 
-  const sheetName = normalizedSheetName(process.env.GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution");
+  const { sheetName } = distributionSheetConfig();
   const values = await readDistributionSheetRange(`${sheetName}!A:Z`, "FORMULA");
   if (values.length === 0) throw new PreviewInputError("The Distribution sheet is empty.");
   const normalizedHeaders = (values[0] ?? []).map(normalizeDistributionHeader);
@@ -870,7 +914,7 @@ export async function updateDistributionRow(input: DistributionUpdateInput): Pro
     throw new PreviewInputError("This assignment already exists for the selected Match, Collector, Task, and Half.");
   }
 
-  const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
+  const { spreadsheetId } = distributionSheetConfig();
   await googleRequest(`${GOOGLE_SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values:batchUpdate`, {
     method: "POST",
     body: JSON.stringify({
@@ -944,7 +988,7 @@ export async function deleteDistributionRowFromSheet(input: DistributionDeleteIn
     throw new PreviewInputError("The Distribution assignment identity is incomplete.");
   }
 
-  const sheetName = normalizedSheetName(process.env.GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution");
+  const { sheetName } = distributionSheetConfig();
   const values = await readDistributionSheetRange(`${sheetName}!A:Z`, "FORMULA");
   if (values.length < 2) throw new PreviewInputError("No assignment rows were found in the Distribution sheet.");
   const indexes = getDistributionHeaderIndexes((values[0] ?? []).map(normalizeDistributionHeader));
@@ -963,7 +1007,7 @@ export async function deleteDistributionRowFromSheet(input: DistributionDeleteIn
 
   const rowNumber = matchingRows[0];
   if (rowNumber === undefined) throw new DistributionRowConflictError();
-  const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
+  const { spreadsheetId } = distributionSheetConfig();
   const sheetId = await findDistributionSheetId(spreadsheetId, sheetName);
   await googleRequest(`${GOOGLE_SHEETS_API}/${encodeURIComponent(spreadsheetId)}:batchUpdate`, {
     method: "POST",
@@ -990,7 +1034,7 @@ export async function deleteDistributionRowFromSheet(input: DistributionDeleteIn
 }
 
 export async function refreshDistributionMatchBorders(): Promise<void> {
-  const sheetName = normalizedSheetName(process.env.GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution");
+  const { sheetName } = distributionSheetConfig();
   const values = await readDistributionSheetRange(`${sheetName}!A:Z`, "FORMULA");
   if (values.length < 2) return;
   const headers = (values[0] ?? []).map(normalizeDistributionHeader);
@@ -1017,7 +1061,7 @@ export async function refreshDistributionMatchBorders(): Promise<void> {
   });
   if (currentRowNumber !== null) groupEndRows.push(currentRowNumber);
 
-  const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
+  const { spreadsheetId } = distributionSheetConfig();
   const sheetId = await findDistributionSheetId(spreadsheetId, sheetName);
   const requests = [
     {
@@ -1209,7 +1253,7 @@ export async function updateDistributionStatuses(
 ): Promise<{ updated: number }> {
   if (updates.length === 0) return { updated: 0 };
 
-  const sheetName = normalizedSheetName(process.env.GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution");
+  const { sheetName } = distributionSheetConfig();
   // Always re-read the live sheet immediately before resolving row numbers.
   // Rows can move when a collector/task is added or edited during a match.
   const values = await readDistributionSheetRange(`${sheetName}!A:Z`, "FORMULA");
@@ -1273,7 +1317,7 @@ export async function updateDistributionStatuses(
 
   if (writes.length === 0) return { updated: 0 };
 
-  const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
+  const { spreadsheetId } = distributionSheetConfig();
   const statusColumn = columnLetter(statusIndex);
   await googleRequest(`${GOOGLE_SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values:batchUpdate`, {
     method: "POST",
