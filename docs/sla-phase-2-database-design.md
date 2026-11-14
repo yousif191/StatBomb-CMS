@@ -181,3 +181,19 @@ Advisor note: Supabase reports `rls_enabled_no_policy` INFO for the two new tabl
 
 **Phase 2 status: DATABASE STRUCTURE APPLIED AND BASIC SECURITY/IDEMPOTENCY VERIFIED ON TESTING.**  
 **Still pending before Phase 2 sign-off:** review the final migration diff against repository history and run the project’s local migration/type checks when the repository CLI workspace is available. No scheduling trigger, worker, or notification sender has been enabled; those belong to Phase 3/4.
+
+
+## Phase 3A execution status — 14 Nov 2026
+
+- [x] Added `prepare_assignment_sla_schedule()` before-update trigger to reset legacy markers on SLA/Collector changes and restore an Overdue assignment when its SLA is moved into the future.
+- [x] Added `sync_assignment_sla_schedule()` after-insert/update trigger to create durable generations for distribution, SLA changes, reassignment, and restoration.
+- [x] Pending Warning/Overdue events are cancelled when an assignment is completed, removed from Distribution, or hidden from the Admin dashboard.
+- [x] Reassignment within the final hour schedules the new Collector's Warning immediately.
+- [x] Added a Testing-only backfill for eligible active assignments. Testing currently contains only Completed assignments, so the backfill correctly created zero schedules and did not modify assignments.
+- [x] Applied migration `20261114210000_sla_phase3_assignment_schedule_triggers` to Testing only.
+- [x] Transactional synthetic test verified generation creation on restore, a new generation on SLA change, a new generation on Collector reassignment, immediate final-hour Warning scheduling, and cancellation on completion. The transaction was rolled back.
+- [x] Post-test verification confirmed zero synthetic schedule/event rows remained and all 12 eligible Completed assignments were unchanged.
+- [ ] Still pending: test distribution removal and Admin hide cancellation; test SLA extension from Overdue; implement and verify the due-only event worker (Phase 3B/4).
+- [ ] Legacy evaluator remains active; no worker cutover has occurred.
+
+**Phase 3A status: assignment-to-schedule lifecycle trigger implemented and transactionally smoke-tested on Testing.**
