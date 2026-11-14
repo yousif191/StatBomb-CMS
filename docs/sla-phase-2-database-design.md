@@ -197,3 +197,22 @@ Advisor note: Supabase reports `rls_enabled_no_policy` INFO for the two new tabl
 - [ ] Legacy evaluator remains active; no worker cutover has occurred.
 
 **Phase 3A status: assignment-to-schedule lifecycle trigger implemented and transactionally smoke-tested on Testing.**
+
+
+## Phase 3B/3C execution status — 14 Nov 2026
+
+- [x] Added `process_assignment_sla_events(batch_size)` as a bounded due-only processor. It locks the assignment before its event row, matching the trigger lock order; it uses `SKIP LOCKED` to allow concurrent workers without duplicate processing.
+- [x] Added the one-minute Warning precheck and final latest-assignment validation at send time.
+- [x] A late worker skips Warning when the SLA has elapsed and processes Overdue only.
+- [x] Overdue processing updates assignment status; if an Overdue assignment's SLA is moved into the future, the assignment trigger restores Not Started/In Progress and creates a new generation.
+- [x] Worker writes no rows to `notifications`; the event ledger is the durable SLA record.
+- [x] Updated `get_sla_alert_assignments` to return only Warning events marked sent for the active generation, with explicit Admin/Collector scope checks.
+- [x] Added generation to the alarm query response and browser silencing key so a new generation cannot inherit an old silenced alarm.
+- [x] Applied worker and alarm RPC migrations to Testing only.
+- [x] Verified worker execute privilege is service_role-only; authenticated/anon cannot invoke it. Authenticated can invoke the scoped alarm read RPC; anon cannot.
+- [x] Transactional tests passed for immediate warning, stale warning skip + overdue transition, reassignment immediate warning, completion cancellation, one-minute precheck, send, retry idempotency, and no notification-row writes. All synthetic changes were rolled back.
+- [ ] Still pending: full browser/Preview test using a newly created assignment after the RPC contract change; test distribution-removal cancellation through the actual sync path; test concurrency/worker recovery under a deliberately interrupted transaction.
+- [ ] Still pending: switch the existing cron endpoint to the event worker on Testing Preview only, after confirming Preview uses Testing Supabase credentials. Do not add a second scheduler.
+- [ ] Legacy evaluator is still active and must remain so until the Testing Preview cutover is validated.
+
+**Phase 3 status: schedule lifecycle, due-only worker, and event-backed alarm read path are implemented and database-smoke-tested on Testing.**
