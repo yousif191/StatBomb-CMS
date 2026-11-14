@@ -1,20 +1,13 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import { createServiceRoleClient } from "@/lib/supabase/server";
+import { createServiceRoleClient, isSlaTestEnvironment } from "@/lib/supabase/server";
 
 /**
- * SLA scanner. Invoked by Vercel Cron (see vercel.json) roughly every 60
- * seconds; not a client-callable RPC.
- *
- * All the actual state logic lives in the `evaluate_assignment_sla_states()`
- * database function (migration 0004, warning window updated in 0023): fire
- * the 1-hour SLA warning once, flip past-SLA incomplete assignments to
- * 'Overdue' once. That function is
- * state-based and guarded by `sla_warning_sent_at` / `overdue_notified_at`,
- * so this route is safe to call at any frequency, twice concurrently, or
- * after arbitrary downtime — a missed tick is simply caught by the next run
- * and each event still fires exactly once. This handler therefore stays a
- * thin, auth-checked trigger with no SLA logic of its own to drift.
+ * The existing external cron-job.org schedule calls this endpoint once per
+ * minute. Production continues using the legacy evaluator until cutover.
+ * Feature-branch Preview deployments with TEST_SUPABASE_URL use the durable
+ * event worker against the isolated Testing project. No second scheduler is
+ * introduced and the Production database is never selected in test mode.
  */
 
 // Never prerender or cache: this must execute on every invocation.
@@ -65,7 +58,10 @@ async function runScan(request: NextRequest) {
 
   try {
     const supabase = createServiceRoleClient();
-    const { data, error } = await supabase.rpc("evaluate_assignment_sla_states");
+    const isTestEngine = isSlaTestEnvironment();
+    const { data, error } = isTestEngine
+      ? await supabase.rpc("process_assignment_sla_events", { p_batch_size: 100 })
+      : await supabase.rpc("evaluate_assignment_sla_states");
 
     if (error) {
       // Log server-side detail; return nothing internal to the caller.
@@ -77,19 +73,26 @@ async function runScan(request: NextRequest) {
       return NextResponse.json({ error: "sla_scan_failed" }, { status: 500 });
     }
 
-    // The function returns a single row of counters.
-    const result = data?.[0] ?? { warnings_fired: 0, overdue_fired: 0 };
-
     const durationMs = Date.now() - startedAt;
 
-    console.info("[sla-scan] completed", {
+    if (isTestEngine) {
+      const result = data?.[0] ?? {
+        processed: 0, warnings_sent: 0, overdue_marked: 0,
+        cancelled: 0, skipped: 0, prechecked: 0,
+      };
+      console.info("[sla-scan] event worker completed", { ...result, durationMs });
+      return NextResponse.json({ ok: true, engine: "event_queue", ...result, durationMs });
+    }
+
+    const result = data?.[0] ?? { warnings_fired: 0, overdue_fired: 0 };
+    console.info("[sla-scan] legacy evaluator completed", {
       warningsFired: result.warnings_fired,
       overdueFired: result.overdue_fired,
       durationMs,
     });
-
     return NextResponse.json({
       ok: true,
+      engine: "legacy",
       warningsFired: result.warnings_fired,
       overdueFired: result.overdue_fired,
       durationMs,
