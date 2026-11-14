@@ -162,3 +162,22 @@ Immediate reassignment warning within the final hour has no one-minute precheck 
 - RLS, grants, constraints, indexes, and idempotency verified.
 - No Production schema/data/cron/environment changes.
 - No new scheduler installed.
+
+
+## Phase 2 execution status — 14 Nov 2026
+
+- [x] Read-only schema/RPC/RLS/grant/index/migration audit completed on Testing and Production.
+- [x] Design and SQL draft committed on the feature branch.
+- [x] Migration `20261114175135_sla_phase2_schedule_event_schema` applied to Supabase Testing only.
+- [x] Both new tables exist and RLS is enabled.
+- [x] `anon` and `authenticated` have no table privileges on the internal SLA tables; `service_role` has the required CRUD privileges.
+- [x] Due-work partial index, assignment/schedule lookup indexes, generation uniqueness, and one-active-schedule uniqueness verified.
+- [x] Legacy per-assignment warning unique index replaced by notification-to-event uniqueness. Existing Testing notifications were zero; no notification history was deleted.
+- [x] Transactional synthetic test verified duplicate event generation and duplicate notification event links are rejected; transaction was rolled back.
+- [x] Rollback verification confirmed no synthetic match, assignment, schedule, event, or notification rows remained.
+- [x] Production migration history was inspected read-only; no Production migration was applied.
+
+Advisor note: Supabase reports `rls_enabled_no_policy` INFO for the two new tables. This is intentional: the tables are server-internal, RLS is enabled, and `anon`/`authenticated` have no table grants. The due index may appear unused until Phase 3 introduces the due-only worker. Existing unrelated advisor findings were not changed.
+
+**Phase 2 status: DATABASE STRUCTURE APPLIED AND BASIC SECURITY/IDEMPOTENCY VERIFIED ON TESTING.**  
+**Still pending before Phase 2 sign-off:** review the final migration diff against repository history and run the project’s local migration/type checks when the repository CLI workspace is available. No scheduling trigger, worker, or notification sender has been enabled; those belong to Phase 3/4.
