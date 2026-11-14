@@ -254,3 +254,12 @@ The product decision is to retire all ordinary Admin/Collector notifications and
 - [x] Called the real `hide_assignment_from_dashboard` RPC; confirmed the active schedule is cancelled with `admin_hidden` reason.
 - [x] Called the real `reconcile_distribution_presence` RPC under a service-role JWT context; confirmed removal from Distribution cancels the schedule with `distribution_removed` reason.
 - [x] All synthetic assignment changes in these tests were rolled back.
+
+
+## Concurrency and recovery test — 14 Nov 2026
+
+- [x] Created one temporary Testing-only assignment with an immediately due Warning event.
+- [x] Invoked two independent worker transactions concurrently. Exactly one processed the event (`processed=1`, `warnings_sent=1`); the other skipped the locked assignment (`processed=0`).
+- [x] Verified the Warning event ended `sent` with `attempt_count=1`, while the future Overdue event remained pending.
+- [x] Deleted the temporary assignment after the test and verified its schedule and event rows were cascade-cleaned. No synthetic assignment/schedule/event rows remain.
+- [x] A separate simulated transaction interruption rolled back the worker's event state; the next worker invocation retried and completed the event successfully.
