@@ -186,7 +186,7 @@ export default async function AdminDashboardPage({
         {allDistributedAssignments.length === 0 ? (
           <div className="rounded-xl border border-dashed border-pitch-700 px-6 py-16 text-center">
             <p className="text-sm text-chalk-200">
-              No current-shift or active assignments found.
+              No assignments found in the Distribution sheet for this shift.
             </p>
           </div>
         ) : (
