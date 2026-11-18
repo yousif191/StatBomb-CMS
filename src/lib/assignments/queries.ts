@@ -4,6 +4,7 @@ import type { AssignmentWithMatch } from "./types";
 import { fetchAllPages } from "./query-pagination";
 import { normalizeDistributionHalf, normalizeDistributionTask, normalizeMatchId } from "@/lib/sync/distribution-identity";
 import { isCurrentShiftDate, parseCalendarDate } from "@/lib/dates";
+import { readDistributionRowsForPreview, normalizeDistributionCollectorHrCode } from "@/lib/sync/google-sheets";
 
 type Client = SupabaseClient<Database>;
 
@@ -282,7 +283,6 @@ export async function getCollectorSlaAlertAssignments(
   // Use the live Distribution sheet as the source for admin dashboard rows,
   // matching the Match Distribution page. Supabase assignments enrich rows
   // with workflow state and action IDs when a matching record exists.
-  const { readDistributionRowsForPreview } = await import("@/lib/sync/google-sheets");
   const [distributionRows, databaseAssignments, matchesResult, profilesResult] = await Promise.all([
     readDistributionRowsForPreview(),
     fetchAllPages((from, to) =>
