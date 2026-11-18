@@ -72,7 +72,7 @@ export function AssignmentTable({
         a.match.competition ?? "",
         displayAssignmentMatchId(a),
         displayAssignmentShiftDate(a),
-        showCollector ? (collectorNames[a.collector_id] ?? "") : "",
+        showCollector ? (collectorNames[a.collector_id] ?? (a.collector_id.startsWith("sheet-collector:") ? a.collector_id.slice("sheet-collector:".length) : "")) : "",
       ]
         .join(" ")
         .toLowerCase();
@@ -156,7 +156,7 @@ export function AssignmentTable({
                   <td className="px-3 py-2 text-chalk-200">{a.half}</td>
                   {showCollector && (
                     <td className="px-3 py-2 text-chalk-200">
-                      {collectorNames[a.collector_id] ?? "—"}
+                      {collectorNames[a.collector_id] ?? (a.collector_id.startsWith("sheet-collector:") ? a.collector_id.slice("sheet-collector:".length) : "—")}
                     </td>
                   )}
                   <td className="px-3 py-2 text-chalk-200">{a.status}</td>
@@ -176,7 +176,7 @@ export function AssignmentTable({
                   <td className="px-3 py-2 text-chalk-200">{a.completed_at ? new Date(a.completed_at).toLocaleString() : "—"}</td>
                   {showCollector && (
                     <td className="px-3 py-2">
-                      <AdminAssignmentActions assignmentId={a.id} status={a.status} />
+                      {a.id.startsWith("sheet:") ? <span className="text-xs text-chalk-300">Pending DB sync</span> : <AdminAssignmentActions assignmentId={a.id} status={a.status} />}
                     </td>
                   )}
                 </tr>

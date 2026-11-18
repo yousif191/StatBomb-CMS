@@ -51,11 +51,13 @@ export default async function AdminDashboardPage({
   );
   const allDistributedAssignments = assignments;
   const bulkCompletionCount = allDistributedAssignments.filter(
-    (assignment) => assignment.status !== "Completed"
+    (assignment) => !assignment.id.startsWith("sheet:") && assignment.status !== "Completed"
   ).length;
 
-  const collectorIds = [...new Set(assignments.map((a) => a.collector_id))];
-  const collectorNames: Record<string, string> = {};
+  const collectorIds = [...new Set(assignments.filter((a) => !a.collector_id.startsWith("sheet-collector:")).map((a) => a.collector_id))];
+  const collectorNames: Record<string, string> = Object.fromEntries(assignments
+    .filter((a) => a.collector_id.startsWith("sheet-collector:"))
+    .map((a) => [a.collector_id, a.collector_id.slice("sheet-collector:".length)]));
   if (collectorIds.length > 0) {
     const { data: collectors } = await supabase
       .from("profiles")
@@ -184,7 +186,7 @@ export default async function AdminDashboardPage({
         {allDistributedAssignments.length === 0 ? (
           <div className="rounded-xl border border-dashed border-pitch-700 px-6 py-16 text-center">
             <p className="text-sm text-chalk-200">
-              No current-shift or active assignments found.
+              No assignments found in the Distribution sheet for this shift.
             </p>
           </div>
         ) : (
