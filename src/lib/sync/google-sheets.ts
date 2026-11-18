@@ -1012,6 +1012,11 @@ export async function refreshDistributionMatchBorders(): Promise<void> {
   });
 }
 
+export async function readAllDistributionRows(): Promise<DistributionMatchRow[]> {
+  const pull = await pullDistributionSheet();
+  return mapDistributionRows(pull);
+}
+
 export async function readDistributionRowsForMatch(matchId: string): Promise<DistributionMatchRow[]> {
   const normalizedMatchId = normalizeMatchId(matchId);
   if (!normalizedMatchId) {
