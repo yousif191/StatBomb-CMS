@@ -1019,12 +1019,18 @@ export async function readDistributionRowsForMatch(matchId: string): Promise<Dis
   }
 
   const pull = await pullDistributionSheet();
+  return mapDistributionRows(pull, normalizedMatchId);
+}
+
+function mapDistributionRows(
+  pull: GoogleSheetsPull,
+  filterMatchId?: string,
+): DistributionMatchRow[] {
   const headers = pull.rows.headers.map(normalizeDistributionHeader);
   const findHeaderIndex = (...aliases: string[]) => {
     const normalizedAliases = aliases.map((alias) => normalizeDistributionHeader(alias));
     return headers.findIndex((header) => normalizedAliases.includes(header));
   };
-
   const indexes = {
     id: findHeaderIndex("id", "match id"),
     hrCode: findHeaderIndex("hr code", "hr-code", "collector hr code", "collector code"),
@@ -1039,106 +1045,22 @@ export async function readDistributionRowsForMatch(matchId: string): Promise<Dis
     hyperCareNotes: findHeaderIndex("hyper care notes", "hyper-care notes", "notes"),
     reviewEvents: findHeaderIndex("review events"),
   };
+  if (indexes.id < 0) throw new PreviewInputError("The Distribution sheet is missing its Match ID column.");
 
   const asText = (value: unknown): string | null => {
     const text = String(value ?? "").trim();
     return text || null;
   };
 
-  const mapRows = (rows: unknown[][], rowOffset: number): DistributionMatchRow[] => rows
-    .map((row, index) => {
-      const rowMatchId = normalizeMatchId(row[indexes.id] ?? null);
-      if (rowMatchId !== normalizedMatchId) return null;
-
-      return {
-        match_id: normalizedMatchId,
-        collector_hr_code: indexes.hrCode >= 0 ? asText(row[indexes.hrCode]) : null,
-        collector_name: indexes.collectorName >= 0 ? asText(row[indexes.collectorName]) : null,
-        task: indexes.task >= 0 ? asText(row[indexes.task]) : null,
-        half: indexes.half >= 0 ? asText(row[indexes.half]) : null,
-        status: indexes.status >= 0 ? asText(row[indexes.status]) : null,
-        sla: indexes.sla >= 0 ? asText(row[indexes.sla]) : null,
-        shift_date: indexes.shiftDate >= 0 ? asText(row[indexes.shiftDate]) : null,
-        match_date: indexes.matchDate >= 0 ? asText(row[indexes.matchDate]) : null,
-        kick_off_time: indexes.kickOffTime >= 0 ? asText(row[indexes.kickOffTime]) : null,
-        hyper_care_notes: indexes.hyperCareNotes >= 0 ? asText(row[indexes.hyperCareNotes]) : null,
-        review_events: indexes.reviewEvents >= 0 ? asText(row[indexes.reviewEvents]) : null,
-        raw_row_number: index + rowOffset,
-      } satisfies DistributionMatchRow;
-    })
-    .filter((row): row is DistributionMatchRow => row !== null);
-  const previewRows = mapRows(pull.rows.rows, 2);
-  if (previewRows.length > 0) return previewRows;
-
-  const fullValues = await readDistributionSheetRange(`${pull.sheetName}!A:Z`);
-  return mapRows(fullValues.slice(1), 2);
-}
-
-export async function readDistributionRowsForPreview(
-  existingPull?: GoogleSheetsPull,
-): Promise<DistributionMatchRow[]> {
-  // Reuse the caller's successful pull when the same request already read the sheet.
-  const pull = existingPull ?? await pullDistributionSheet();
-  // pullDistributionSheet already fetched the configured range including headers.
-  // Reuse that response instead of making a second full-sheet API request.
-  const matrix = [pull.rows.headers, ...pull.rows.rows];
-  const headers = (matrix[0] ?? []).map(normalizeDistributionHeader);
-  const findHeaderIndex = (...aliases: string[]) => {
-    const normalizedAliases = aliases.map(normalizeDistributionHeader);
-    return headers.findIndex((header) => normalizedAliases.includes(header));
-  };
-  const indexes = {
-    id: findHeaderIndex("id", "match id"),
-    hrCode: findHeaderIndex("hr code", "hr-code", "collector hr code", "collector code"),
-    collectorName: findHeaderIndex("collector", "collector name", "assigned collector", "name"),
-    task: findHeaderIndex("task", "task type", "work type", "assignment type"),
-    half: findHeaderIndex("half", "period", "match half"),
-    status: findHeaderIndex("status"),
-    sla: findHeaderIndex("sla", "deadline", "time"),
-    shiftDate: findHeaderIndex("shift date", "date", "assignment date"),
-    matchDate: findHeaderIndex("match date"),
-    kickOffTime: findHeaderIndex("kick off time", "kick-off time", "kick off"),
-    hyperCareNotes: findHeaderIndex("hyper care notes", "hyper-care notes", "notes"),
-    reviewEvents: findHeaderIndex("review events"),
-  };
-  if (indexes.id < 0 || indexes.hrCode < 0 || indexes.task < 0 || indexes.half < 0) {
-    throw new PreviewInputError("The Distribution sheet is missing required assignment headers.");
-  }
-  const asText = (value: unknown): string | null => {
-    const text = String(value ?? "").trim();
-    return text || null;
-  };
-  const spreadsheetError = /^#(?:N\/A|REF!|VALUE!|ERROR!|DIV\/0!|NAME\?|NUM!|NULL!)$/i;
-  return matrix.slice(1).flatMap((row, index): DistributionMatchRow[] => {
-    const rawMatchId = asText(row[indexes.id]);
-    const matchId = normalizeMatchId(rawMatchId);
-    const hrCode = asText(row[indexes.hrCode]);
-    const collectorName = asText(row[indexes.collectorName]);
-    const task = asText(row[indexes.task]);
-    const half = asText(row[indexes.half]);
-
-    // A row is an actual distribution only when all five identity fields
-    // are present and valid. Distribution contains many formula/template
-    // rows (including #N/A collector names); don't reconcile those into the
-    // dashboard or count them as missing/invalid assignments.
-    if (
-      !matchId ||
-      !hrCode ||
-      spreadsheetError.test(hrCode) ||
-      !collectorName ||
-      spreadsheetError.test(collectorName) ||
-      !task ||
-      spreadsheetError.test(task) ||
-      !half ||
-      spreadsheetError.test(half)
-    ) return [];
-
+  return pull.rows.rows.flatMap((row, index): DistributionMatchRow[] => {
+    const rowMatchId = normalizeMatchId(row[indexes.id] ?? null);
+    if (!rowMatchId || (filterMatchId && rowMatchId !== filterMatchId)) return [];
     return [{
-      match_id: matchId,
-      collector_hr_code: hrCode,
-      collector_name: collectorName,
-      task,
-      half,
+      match_id: rowMatchId,
+      collector_hr_code: indexes.hrCode >= 0 ? asText(row[indexes.hrCode]) : null,
+      collector_name: indexes.collectorName >= 0 ? asText(row[indexes.collectorName]) : null,
+      task: indexes.task >= 0 ? asText(row[indexes.task]) : null,
+      half: indexes.half >= 0 ? asText(row[indexes.half]) : null,
       status: indexes.status >= 0 ? asText(row[indexes.status]) : null,
       sla: indexes.sla >= 0 ? asText(row[indexes.sla]) : null,
       shift_date: indexes.shiftDate >= 0 ? asText(row[indexes.shiftDate]) : null,
@@ -1150,7 +1072,23 @@ export async function readDistributionRowsForPreview(
     }];
   });
 }
-
+export async function readDistributionRowsForPreview(
+  existingPull?: GoogleSheetsPull,
+): Promise<DistributionMatchRow[]> {
+  // Kept for sync preview validation; the admin dashboard and Match
+  // Distribution page use the exact same row mapper above.
+  const pull = existingPull ?? await pullDistributionSheet();
+  return mapDistributionRows(pull).filter((row) =>
+    Boolean(
+      row.collector_hr_code &&
+      row.collector_name &&
+      row.task &&
+      row.half &&
+      !/^#(?:N\/A|REF!|VALUE!|ERROR!|DIV\/0!|NAME\?|NUM!|NULL!)$/i.test(row.collector_hr_code ?? "") &&
+      !/^#(?:N\/A|REF!|VALUE!|ERROR!|DIV\/0!|NAME\?|NUM!|NULL!)$/i.test(row.collector_name ?? "")
+    )
+  );
+}
 
 export type DistributionStatusUpdate = {
   matchId: string;
