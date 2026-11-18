@@ -320,6 +320,7 @@ export async function getAdminDashboardAssignmentsForShift(
   const result: AssignmentWithMatch[] = [];
   for (const row of selectedRows) {
     const externalId = normalizeMatchId(row.match_id);
+    if (!externalId) continue;
     const match = matchByExternalId.get(externalId);
     const hrCode = normalizeDashboardHrCode(row.collector_hr_code);
     const task = normalizeDistributionTask(row.task);
