@@ -4,7 +4,7 @@ import type { AssignmentWithMatch } from "./types";
 import { fetchAllPages } from "./query-pagination";
 import { normalizeDistributionHalf, normalizeDistributionTask, normalizeMatchId } from "@/lib/sync/distribution-identity";
 import { isCurrentShiftDate, parseCalendarDate } from "@/lib/dates";
-import { readDistributionRowsForPreview, normalizeDistributionCollectorHrCode } from "@/lib/sync/google-sheets";
+import { readAllDistributionRows, normalizeDistributionCollectorHrCode } from "@/lib/sync/google-sheets";
 
 type Client = SupabaseClient<Database>;
 
@@ -284,7 +284,7 @@ export async function getCollectorSlaAlertAssignments(
   // matching the Match Distribution page. Supabase assignments enrich rows
   // with workflow state and action IDs when a matching record exists.
   const [distributionRows, databaseAssignments, matchesResult, profilesResult] = await Promise.all([
-    readDistributionRowsForPreview(),
+    readAllDistributionRows(),
     fetchAllPages((from, to) =>
       supabase.from("assignments").select("*")
         .eq("hidden_from_admin_dashboard", false)
