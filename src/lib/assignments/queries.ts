@@ -302,12 +302,13 @@ export async function getCollectorSlaAlertAssignments(
   const selectedRows = distributionRows.filter((row) => isCurrentShiftDate(row.shift_date, shiftDate));
   const matchByExternalId = new Map(matches.map((match) => [normalizeMatchId(match.external_id), match] as const));
   const profileByHr = new Map(profiles.filter((profile) => profile.hr_code)
-    .map((profile) => [normalizeDashboardHrCode(profile.hr_code), profile] as const));
+    .map((profile) => [normalizeDistributionCollectorHrCode(profile.hr_code) ?? "", profile] as const));
   const profileById = new Map(profiles.map((profile) => [profile.id, profile] as const));
+  const matchByInternalId = new Map(matches.map((match) => [match.id, match] as const));
   const assignmentByIdentity = new Map<string, Database["public"]["Tables"]["assignments"]["Row"]>();
 
   for (const assignment of databaseAssignments) {
-    const match = matches.find((candidate) => candidate.id === assignment.match_id);
+    const match = matchByInternalId.get(assignment.match_id);
     const profile = profileById.get(assignment.collector_id);
     if (!match || !profile?.hr_code) continue;
     const key = dashboardDistributionKey(match.external_id, profile.hr_code, assignment.task, assignment.half);
