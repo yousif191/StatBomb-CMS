@@ -275,9 +275,9 @@ export async function getCollectorSlaAlertAssignments(
 
 
 /**
- * Default admin dashboard query: today's selected shift plus live work that
- * still needs at
-
+ * Admin dashboard query: read assignments from the selected shift's live
+ * Distribution sheet and enrich them with matching Supabase workflow records.
+ */
 export async function getAdminDashboardAssignmentsForShift(
   supabase: Client,
   shiftDate: string
