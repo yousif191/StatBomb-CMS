@@ -276,13 +276,13 @@ export async function getCollectorSlaAlertAssignments(
 
 /**
  * Default admin dashboard query: today's selected shift plus live work that
- * still needs atexport async function getAdminDashboardAssignmentsForShift(
+ * still needs at
+export async function getAdminDashboardAssignmentsForShift(
   supabase: Client,
   shiftDate: string
 ): Promise<AssignmentWithMatch[]> {
-  // Use the live Distribution sheet as the source for admin dashboard rows,
-  // matching the Match Distribution page. Supabase assignments enrich rows
-  // with workflow state and action IDs when a matching record exists.
+  // Live Google Distribution is the source of truth for what is assigned
+  // to the selected shift. Supabase provides optional workflow records.
   const [distributionRows, databaseAssignments, matchesResult, profilesResult] = await Promise.all([
     readAllDistributionRows(),
     fetchAllPages((from, to) =>
@@ -346,8 +346,8 @@ export async function getCollectorSlaAlertAssignments(
       continue;
     }
 
-    // This synthetic display record is intentionally non-actionable. The
-    // AssignmentTable hides mutation controls when the id starts with sheet:.
+    // Sheet-only items are display records; action buttons remain disabled
+    // until a real Supabase assignment exists.
     result.push({
       id: `sheet:${row.raw_row_number}:${identity}`,
       match_id: match.id,
@@ -391,22 +391,19 @@ function dashboardDistributionKey(matchId: string, hrCode: string, task: string,
   ].join("|");
 }
 
-function dashboardStatusFromSheet(
-  value: string | null,
-  fallback: AssignmentStatus,
-): AssignmentStatus {
+function dashboardStatusFromSheet(value: string | null, fallback: AssignmentStatus): AssignmentStatus {
   const status = String(value ?? "").trim().toLowerCase();
   if (status === "complete" || status === "completed") return "Completed";
   if (status === "in progress" || status === "in-progress") return "In Progress";
-  if (status === "not started" || status === "not-started" || !status) return status ? "Not Started" : fallback;
+  if (status === "not started" || status === "not-started") return "Not Started";
   return fallback;
 }
 
 function parseDashboardDistributionSla(value: string | null): string | null {
   const text = String(value ?? "").trim();
   if (!text) return null;
-  const date = new Date(text);
-  if (!Number.isNaN(date.getTime())) return date.toISOString();
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
   const match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?:\s*([AaPp][Mm]))?)?$/);
   if (!match) return null;
   const first = Number(match[1]);
@@ -420,11 +417,6 @@ function parseDashboardDistributionSla(value: string | null): string | null {
   const hour = meridiem === "pm" && rawHour < 12 ? rawHour + 12 : meridiem === "am" && rawHour === 12 ? 0 : rawHour;
   const instant = new Date(Date.UTC(year, month - 1, day, hour - 2, minute));
   return Number.isNaN(instant.getTime()) ? null : instant.toISOString();
-}
-ted_at ?? "").localeCompare(String(a.created_at ?? ""));
-  });
-
-  return attachMatches(supabase, assignments);
 }
 
 /**
