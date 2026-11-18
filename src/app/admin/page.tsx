@@ -51,11 +51,13 @@ export default async function AdminDashboardPage({
   );
   const allDistributedAssignments = assignments;
   const bulkCompletionCount = allDistributedAssignments.filter(
-    (assignment) => assignment.status !== "Completed"
+    (assignment) => !assignment.id.startsWith("sheet:") && assignment.status !== "Completed"
   ).length;
 
-  const collectorIds = [...new Set(assignments.map((a) => a.collector_id))];
-  const collectorNames: Record<string, string> = {};
+  const collectorIds = [...new Set(assignments.filter((a) => !a.collector_id.startsWith("sheet-collector:")).map((a) => a.collector_id))];
+  const collectorNames: Record<string, string> = Object.fromEntries(assignments
+    .filter((a) => a.collector_id.startsWith("sheet-collector:"))
+    .map((a) => [a.collector_id, a.collector_id.slice("sheet-collector:".length)]));
   if (collectorIds.length > 0) {
     const { data: collectors } = await supabase
       .from("profiles")
