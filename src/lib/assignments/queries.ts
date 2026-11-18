@@ -282,89 +282,126 @@ export async function getAdminDashboardAssignmentsForShift(
   supabase: Client,
   shiftDate: string
 ): Promise<AssignmentWithMatch[]> {
-  // Live Google Distribution is the source of truth for what is assigned
-  // to the selected shift. Supabase provides optional workflow records.
-  const [distributionRows, databaseAssignments, matchesResult, profilesResult] = await Promise.all([
-    readAllDistributionRows(),
+  // Preserve the established Supabase dashboard query and its active-work
+  // behavior. Google Distribution is used only to add rows missing from DB.
+  // shift_date is a PostgreSQL date column, so filter with ISO YYYY-MM-DD only.
+  // Only assignments still present in the live Distribution are included for
+  // the selected shift, and stale Overdue rows removed/reassigned in the Sheet
+  // are excluded. Keep In Progress work visible even if its row was removed.
+  // Split the broad OR into two selective, parallel queries. This lets Postgres
+  // use the shift-date and status/distribution indexes independently instead of
+  // planning one OR across today's assignments and all active work.
+  const [shiftAssignments, activeAssignments] = await Promise.all([
     fetchAllPages((from, to) =>
-      supabase.from("assignments").select("*")
+      supabase
+        .from("assignments")
+        .select("*")
         .eq("hidden_from_admin_dashboard", false)
-        .order("id", { ascending: true }).range(from, to),
+        .eq("shift_date", shiftDate)
+        // Match Master treats only explicit false as absent. Keep the same
+        // semantics here so legacy NULL flags do not hide valid assignments.
+        .or("distribution_present.eq.true,distribution_present.is.null")
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to),
       ASSIGNMENTS_PAGE_SIZE,
     ),
-    supabase.from("matches").select("*"),
-    supabase.from("profiles").select("id, hr_code, full_name, email"),
+    fetchAllPages((from, to) =>
+      supabase
+        .from("assignments")
+        .select("*")
+        .eq("hidden_from_admin_dashboard", false)
+        .or('status.eq."In Progress",and(status.eq."Overdue",distribution_present.eq.true)')
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to),
+      ASSIGNMENTS_PAGE_SIZE,
+    ),
   ]);
-  if (matchesResult.error) throw matchesResult.error;
-  if (profilesResult.error) throw profilesResult.error;
 
-  const matches = matchesResult.data ?? [];
-  const profiles = profilesResult.data ?? [];
-  const selectedRows = distributionRows.filter((row) => isCurrentShiftDate(row.shift_date, shiftDate));
-  const matchByExternalId = new Map(matches.map((match) => [normalizeMatchId(match.external_id), match] as const));
-  const profileByHr = new Map(profiles.filter((profile) => profile.hr_code)
-    .map((profile) => [normalizeDistributionCollectorHrCode(profile.hr_code) ?? "", profile] as const));
-  const profileById = new Map(profiles.map((profile) => [profile.id, profile] as const));
-  const matchByInternalId = new Map(matches.map((match) => [match.id, match] as const));
-  const assignmentByIdentity = new Map<string, Database["public"]["Tables"]["assignments"]["Row"]>();
-
-  for (const assignment of databaseAssignments) {
-    const match = matchByInternalId.get(assignment.match_id);
-    const profile = profileById.get(assignment.collector_id);
-    if (!match || !profile?.hr_code) continue;
-    const key = dashboardDistributionKey(match.external_id, profile.hr_code, assignment.task, assignment.half);
-    if (!assignmentByIdentity.has(key)) assignmentByIdentity.set(key, assignment);
+  const uniqueAssignments = new Map<string, Database["public"]["Tables"]["assignments"]["Row"]>();
+  for (const assignment of [...shiftAssignments, ...activeAssignments]) {
+    uniqueAssignments.set(assignment.id, assignment);
   }
 
-  const now = new Date().toISOString();
-  const result: AssignmentWithMatch[] = [];
-  for (const row of selectedRows) {
+  const assignments = [...uniqueAssignments.values()].sort((a, b) => {
+    const shiftOrder = String(b.shift_date ?? "").localeCompare(String(a.shift_date ?? ""));
+    if (shiftOrder !== 0) return shiftOrder;
+    return String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
+  });
+
+
+  const hydratedAssignments = await attachMatches(supabase, assignments);
+  const distributionRows = await readAllDistributionRows();
+  const selectedRows = distributionRows.filter((row) => isCurrentShiftDate(row.shift_date, shiftDate));
+  if (selectedRows.length === 0) return hydratedAssignments;
+
+  const profilesResult = await supabase.from("profiles").select("id, hr_code, full_name, email");
+  if (profilesResult.error) throw profilesResult.error;
+  const profiles = profilesResult.data ?? [];
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile] as const));
+  const profileByHr = new Map(profiles
+    .filter((profile) => profile.hr_code)
+    .map((profile) => [normalizeDistributionCollectorHrCode(profile.hr_code) ?? "", profile] as const));
+
+  const existingKeys = new Set<string>();
+  for (const assignment of hydratedAssignments) {
+    const profile = profileById.get(assignment.collector_id);
+    if (!profile?.hr_code) continue;
+    existingKeys.add(dashboardDistributionKey(
+      assignment.match.external_id,
+      profile.hr_code,
+      assignment.task,
+      assignment.half,
+    ));
+  }
+
+  const candidateRows = selectedRows.flatMap((row) => {
     const externalId = normalizeMatchId(row.match_id);
-    if (!externalId) continue;
-    const match = matchByExternalId.get(externalId);
-    const hrCode = normalizeDashboardHrCode(row.collector_hr_code);
+    const hrCode = normalizeDistributionCollectorHrCode(row.collector_hr_code);
     const task = normalizeDistributionTask(row.task);
     const half = normalizeDistributionHalf(row.half);
     const shiftDateIso = parseCalendarDate(row.shift_date, "dmy");
-    if (!match || !hrCode || !task || !half || !shiftDateIso) continue;
+    if (!externalId || !hrCode || !task || !half || !shiftDateIso) return [];
+    const key = dashboardDistributionKey(externalId, hrCode, task, half);
+    if (existingKeys.has(key)) return [];
+    existingKeys.add(key);
+    return [{ row, externalId, hrCode, task, half, shiftDateIso, key }];
+  });
+  if (candidateRows.length === 0) return hydratedAssignments;
 
-    const identity = dashboardDistributionKey(externalId, hrCode, task, half);
-    const existing = assignmentByIdentity.get(identity);
-    const collector = profileByHr.get(hrCode);
-    const parsedSla = parseDashboardDistributionSla(row.sla);
-    const fallbackSla = parsedSla ?? new Date(`${shiftDateIso}T23:59:59+02:00`).toISOString();
-    const status = dashboardStatusFromSheet(row.status, existing?.status ?? "Not Started");
+  const externalIds = [...new Set(candidateRows.map((candidate) => candidate.externalId))];
+  const matchesResult = await supabase.from("matches").select("*").in("external_id", externalIds);
+  if (matchesResult.error) throw matchesResult.error;
+  const matchByExternalId = new Map(
+    (matchesResult.data ?? []).map((match) => [normalizeMatchId(match.external_id), match] as const),
+  );
 
-    if (existing) {
-      result.push({
-        ...existing,
-        shift_date: shiftDateIso,
-        sla: parsedSla ?? existing.sla,
-        status,
-        distribution_present: true,
-        notes: row.hyper_care_notes ?? existing.notes,
-        match,
-      });
-      continue;
-    }
-
-    // Sheet-only rows are display-only until Refresh creates their real DB record.
-    result.push({
-      id: `sheet:${row.raw_row_number}:${identity}`,
+  const now = new Date().toISOString();
+  const sheetOnlyAssignments: AssignmentWithMatch[] = [];
+  for (const candidate of candidateRows) {
+    const match = matchByExternalId.get(candidate.externalId);
+    if (!match) continue;
+    const collector = profileByHr.get(candidate.hrCode);
+    const parsedSla = parseDashboardDistributionSla(candidate.row.sla);
+    const fallbackSla = parsedSla ?? new Date(`${candidate.shiftDateIso}T23:59:59+02:00`).toISOString();
+    const status = dashboardStatusFromSheet(candidate.row.status, "Not Started");
+    sheetOnlyAssignments.push({
+      id: `sheet:${candidate.row.raw_row_number}:${candidate.key}`,
       match_id: match.id,
-      collector_id: collector?.id ?? `sheet-collector:${hrCode}`,
+      collector_id: collector?.id ?? `sheet-collector:${candidate.hrCode}`,
       previous_collector_id: null,
-      raw_task_value: row.task ?? task,
-      task,
-      half: half as Database["public"]["Tables"]["assignments"]["Row"]["half"],
+      raw_task_value: candidate.row.task ?? candidate.task,
+      task: candidate.task,
+      half: candidate.half as Database["public"]["Tables"]["assignments"]["Row"]["half"],
       sla: fallbackSla,
-      shift_date: shiftDateIso,
+      shift_date: candidate.shiftDateIso,
       status,
       started_at: null,
       completed_at: null,
       sla_warning_sent_at: null,
       overdue_notified_at: null,
-      notes: row.hyper_care_notes,
+      notes: candidate.row.hyper_care_notes,
       distribution_present: true,
       hidden_from_admin_dashboard: false,
       created_at: now,
@@ -373,9 +410,9 @@ export async function getAdminDashboardAssignmentsForShift(
     });
   }
 
-  return result.sort((left, right) =>
-    String(left.sla).localeCompare(String(right.sla)) ||
-    String(left.match.external_id).localeCompare(String(right.match.external_id))
+  return [...hydratedAssignments, ...sheetOnlyAssignments].sort((left, right) =>
+    String(right.shift_date ?? "").localeCompare(String(left.shift_date ?? "")) ||
+    String(right.created_at ?? "").localeCompare(String(left.created_at ?? ""))
   );
 }
 
