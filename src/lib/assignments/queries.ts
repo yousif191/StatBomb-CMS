@@ -277,6 +277,7 @@ export async function getCollectorSlaAlertAssignments(
 /**
  * Default admin dashboard query: today's selected shift plus live work that
  * still needs at
+
 export async function getAdminDashboardAssignmentsForShift(
   supabase: Client,
   shiftDate: string
@@ -346,8 +347,7 @@ export async function getAdminDashboardAssignmentsForShift(
       continue;
     }
 
-    // Sheet-only items are display records; action buttons remain disabled
-    // until a real Supabase assignment exists.
+    // Sheet-only rows are display-only until Refresh creates their real DB record.
     result.push({
       id: `sheet:${row.raw_row_number}:${identity}`,
       match_id: match.id,
