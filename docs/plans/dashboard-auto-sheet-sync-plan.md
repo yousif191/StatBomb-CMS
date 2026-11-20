@@ -159,10 +159,6 @@ The screenshot shows these TEST environment-variable names in the Vercel `statbo
 | `TEST_GOOGLE_SHEETS_DISTRIBUTION_GID` | TEST Distribution tab GID |
 | `TEST_GOOGLE_SHEETS_MATCHES_T_GID` | TEST Match Master tab GID |
 | `TEST_GOOGLE_SHEETS_MATCHES_T_TAB` | TEST Match Master tab title |
-| `TEST_GOOGLE_SHEETS_MATCHES_T_TAB` | Confirm exact intended tab variable before mapping; screenshot shows this exact name |
-| `TEST_GOOGLE_SHEETS_MATCHES_T_GID` | Confirm exact intended Match Master GID before mapping |
-| `TEST_GOOGLE_SHEETS_MATCHES_T_TAB` | Do not infer or rename this key without confirmation |
-| `TEST_GOOGLE_SHEETS_MATCHES_T_GID` | Do not infer or rename this key without confirmation |
 
 ### TEST Supabase variables shown
 
