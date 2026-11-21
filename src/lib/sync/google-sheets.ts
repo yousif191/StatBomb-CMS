@@ -1,4 +1,5 @@
 import "server-only";
+import { getGoogleSheetsEnv } from "@/lib/sync/environment";
 
 import { createSign } from "crypto";
 import { DISTRIBUTION_TASK_OPTIONS } from "@/lib/distribution-options";
@@ -33,7 +34,7 @@ export type GoogleSheetsPull = {
 const GOOGLE_SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
 
 function required(name: string): string {
-  const value = process.env[name]?.trim();
+  const value = getGoogleSheetsEnv(name)?.trim();
   if (!value) throw new PreviewInputError("Google Sheets integration is not configured.");
   return value;
 }
@@ -131,7 +132,7 @@ async function findSheetByGid(spreadsheetId: string, gid: number): Promise<{ tit
   if (!sheet?.properties?.title || sheet.properties.sheetId === undefined) {
     throw new PreviewInputError("The configured Team sheet tab was not found.");
   }
-  const configuredTitle = normalizedSheetName(process.env.GOOGLE_SHEETS_TEAM_TAB);
+  const configuredTitle = normalizedSheetName(getGoogleSheetsEnv("GOOGLE_SHEETS_TEAM_TAB"));
   if (configuredTitle && configuredTitle.toLowerCase() !== sheet.properties.title.trim().toLowerCase()) {
     throw new PreviewInputError("The configured Team sheet tab does not match the configured gid.");
   }
@@ -145,7 +146,7 @@ async function findConfiguredSheet(
     fallbackGid: string,
     fallbackTitle: string
   ): Promise<{ title: string; sheetId: number }> {
-    const configuredGid = Number(process.env[gidVariable] ?? fallbackGid);
+    const configuredGid = Number(getGoogleSheetsEnv(gidVariable) ?? fallbackGid);
     if (!Number.isSafeInteger(configuredGid) || configuredGid < 0) {
       throw new PreviewInputError("Google Sheets tab configuration is invalid.");
     }
@@ -159,7 +160,7 @@ async function findConfiguredSheet(
       throw new PreviewInputError(`The configured ${tabVariable} sheet tab was not found.`);
     }
 
-    const configuredTitle = normalizedSheetName(process.env[tabVariable] ?? fallbackTitle);
+    const configuredTitle = normalizedSheetName(getGoogleSheetsEnv(tabVariable) ?? fallbackTitle);
     if (configuredTitle.toLowerCase() !== title.trim().toLowerCase()) {
       throw new PreviewInputError(`The configured ${tabVariable} sheet tab does not match its GID.`);
     }
@@ -367,7 +368,7 @@ export type TeamSheetCollector = CollectorSheetValues;
 
 export async function pullTeamSheet(): Promise<TeamSheetCollector[]> {
   const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
-  const gid = Number(process.env.GOOGLE_SHEETS_TEAM_GID ?? "1216279434");
+  const gid = Number(getGoogleSheetsEnv("GOOGLE_SHEETS_TEAM_GID") ?? "1216279434");
   if (!Number.isInteger(gid)) throw new PreviewInputError("Google Sheets Team tab configuration is invalid.");
   const sheet = await findSheetByGid(spreadsheetId, gid);
   const payload = await googleRequest<{ values?: unknown[][] }>(
@@ -403,7 +404,7 @@ export async function pullTeamSheet(): Promise<TeamSheetCollector[]> {
 
 export async function upsertCollectorToTeamSheet(values: CollectorSheetValues): Promise<void> {
   const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
-  const gid = Number(process.env.GOOGLE_SHEETS_TEAM_GID ?? "1216279434");
+  const gid = Number(getGoogleSheetsEnv("GOOGLE_SHEETS_TEAM_GID") ?? "1216279434");
   if (!Number.isInteger(gid)) throw new PreviewInputError("Google Sheets Team tab configuration is invalid.");
   const sheet = await findSheetByGid(spreadsheetId, gid);
   const encodedRange = encodeURIComponent(`${sheet.title}!A:Z`);
@@ -448,7 +449,7 @@ export async function upsertCollectorToTeamSheet(values: CollectorSheetValues): 
 
 export async function deleteCollectorFromTeamSheetByHrCode(hrCode: string): Promise<void> {
   const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
-  const gid = Number(process.env.GOOGLE_SHEETS_TEAM_GID ?? "1216279434");
+  const gid = Number(getGoogleSheetsEnv("GOOGLE_SHEETS_TEAM_GID") ?? "1216279434");
   if (!Number.isInteger(gid)) throw new PreviewInputError("Google Sheets Team tab configuration is invalid.");
   const sheet = await findSheetByGid(spreadsheetId, gid);
   const range = encodeURIComponent(`${sheet.title}!A:Z`);
@@ -475,8 +476,8 @@ export async function deleteCollectorFromTeamSheetByHrCode(hrCode: string): Prom
 
 export async function pullDistributionSheet(): Promise<GoogleSheetsPull> {
   const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
-  const sheetName = normalizedSheetName(process.env.GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution");
-  const headerRow = Number(process.env.GOOGLE_SHEETS_HEADER_ROW ?? "1");
+  const sheetName = normalizedSheetName(getGoogleSheetsEnv("GOOGLE_SHEETS_DISTRIBUTION_TAB") ?? "Distribution");
+  const headerRow = Number(getGoogleSheetsEnv("GOOGLE_SHEETS_HEADER_ROW") ?? "1");
   // This is a safety ceiling, not an operational row limit. Read the
   // complete used range in one request so refresh speed/correctness no longer
   // depends on GOOGLE_SHEETS_MAX_ROWS. Request one extra row to detect overflow.
@@ -486,9 +487,9 @@ export async function pullDistributionSheet(): Promise<GoogleSheetsPull> {
   }
 
   const serviceAccountConfigured =
-    Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) &&
-    Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
-  const apiKey = process.env.GOOGLE_SHEETS_API_KEY;
+    Boolean(getGoogleSheetsEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL")) &&
+    Boolean(getGoogleSheetsEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY"));
+  const apiKey = getGoogleSheetsEnv("GOOGLE_SHEETS_API_KEY");
   if (!serviceAccountConfigured && !apiKey) {
     throw new PreviewInputError("Google Sheets integration is not configured.");
   }
@@ -673,7 +674,7 @@ export async function createDistributionAssignments(inputs: DistributionCreateIn
     pendingKeys.add(key);
   }
 
-  const sheetName = normalizedSheetName(process.env.GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution");
+  const sheetName = normalizedSheetName(getGoogleSheetsEnv("GOOGLE_SHEETS_DISTRIBUTION_TAB") ?? "Distribution");
   const spreadsheetId = required("GOOGLE_SHEETS_SPREADSHEET_ID");
   const created: DistributionMatchRow[] = [];
 
@@ -821,7 +822,7 @@ export async function updateDistributionRow(input: DistributionUpdateInput): Pro
   // Keep custom Distribution tasks editable; the sheet is the source of truth
   // for task scopes and they must not be rejected by a stale frontend options list.
 
-  const sheetName = normalizedSheetName(process.env.GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution");
+  const sheetName = normalizedSheetName(getGoogleSheetsEnv("GOOGLE_SHEETS_DISTRIBUTION_TAB") ?? "Distribution");
   const values = await readDistributionSheetRange(`${sheetName}!A:Z`, "FORMULA");
   if (values.length === 0) throw new PreviewInputError("The Distribution sheet is empty.");
   const normalizedHeaders = (values[0] ?? []).map(normalizeDistributionHeader);
@@ -916,7 +917,7 @@ export async function deleteDistributionRowFromSheet(input: DistributionDeleteIn
     throw new PreviewInputError("The Distribution assignment identity is incomplete.");
   }
 
-  const sheetName = normalizedSheetName(process.env.GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution");
+  const sheetName = normalizedSheetName(getGoogleSheetsEnv("GOOGLE_SHEETS_DISTRIBUTION_TAB") ?? "Distribution");
   const values = await readDistributionSheetRange(`${sheetName}!A:Z`, "FORMULA");
   if (values.length < 2) throw new PreviewInputError("No assignment rows were found in the Distribution sheet.");
   const indexes = getDistributionHeaderIndexes((values[0] ?? []).map(normalizeDistributionHeader));
@@ -962,7 +963,7 @@ export async function deleteDistributionRowFromSheet(input: DistributionDeleteIn
 }
 
 export async function refreshDistributionMatchBorders(): Promise<void> {
-  const sheetName = normalizedSheetName(process.env.GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution");
+  const sheetName = normalizedSheetName(getGoogleSheetsEnv("GOOGLE_SHEETS_DISTRIBUTION_TAB") ?? "Distribution");
   const values = await readDistributionSheetRange(`${sheetName}!A:Z`, "FORMULA");
   if (values.length < 2) return;
   const headers = (values[0] ?? []).map(normalizeDistributionHeader);
@@ -1181,7 +1182,7 @@ export async function updateDistributionStatuses(
 ): Promise<{ updated: number }> {
   if (updates.length === 0) return { updated: 0 };
 
-  const sheetName = normalizedSheetName(process.env.GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution");
+  const sheetName = normalizedSheetName(getGoogleSheetsEnv("GOOGLE_SHEETS_DISTRIBUTION_TAB") ?? "Distribution");
   // Always re-read the live sheet immediately before resolving row numbers.
   // Rows can move when a collector/task is added or edited during a match.
   const values = await readDistributionSheetRange(`${sheetName}!A:Z`, "FORMULA");
@@ -1311,11 +1312,11 @@ async function findSheetByTitle(
 async function resolveDeductionSheet(
   spreadsheetId: string
 ): Promise<{ title: string; sheetId: number }> {
-  const configuredTitle = normalizedSheetName(process.env.GOOGLE_SHEETS_DEDUCTIONS_TAB ?? "Deduction2026");
+  const configuredTitle = normalizedSheetName(getGoogleSheetsEnv("GOOGLE_SHEETS_DEDUCTIONS_TAB") ?? "Deduction2026");
   if (!configuredTitle) {
     throw new PreviewInputError("Google Sheets tab configuration is invalid.");
   }
-  const gidRaw = process.env.GOOGLE_SHEETS_DEDUCTIONS_GID?.trim();
+  const gidRaw = getGoogleSheetsEnv("GOOGLE_SHEETS_DEDUCTIONS_GID")?.trim();
   if (gidRaw) {
     return findConfiguredSheet(
       spreadsheetId,
@@ -1421,11 +1422,11 @@ export type FfShotSheetSourceRow = {
 async function resolveFfShotsSheet(
   spreadsheetId: string
 ): Promise<{ title: string; sheetId: number }> {
-  const configuredTitle = normalizedSheetName(process.env.GOOGLE_SHEETS_FF_SHOTS_TAB ?? "FF - Shots 2026");
+  const configuredTitle = normalizedSheetName(getGoogleSheetsEnv("GOOGLE_SHEETS_FF_SHOTS_TAB") ?? "FF - Shots 2026");
   if (!configuredTitle) {
     throw new PreviewInputError("Google Sheets tab configuration is invalid.");
   }
-  const gidRaw = process.env.GOOGLE_SHEETS_FF_SHOTS_GID?.trim();
+  const gidRaw = getGoogleSheetsEnv("GOOGLE_SHEETS_FF_SHOTS_GID")?.trim();
   if (gidRaw) {
     return findConfiguredSheet(
       spreadsheetId,
