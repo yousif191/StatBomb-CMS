@@ -1,3 +1,4 @@
+import { getGoogleSheetsEnv } from "@/lib/sync/environment";
 import "server-only";
 
 import { revalidateTag, unstable_cache } from "next/cache";
@@ -84,7 +85,7 @@ type LoadedBonusSheet = {
 };
 
 function requiredSpreadsheetId(): string {
-  const value = process.env.GOOGLE_SHEETS_SPREADSHEET_ID?.trim();
+  const value = getGoogleSheetsEnv("GOOGLE_SHEETS_SPREADSHEET_ID")?.trim();
   if (!value) throw new PreviewInputError("Google Sheets integration is not configured.");
   return value;
 }
@@ -188,8 +189,8 @@ function normalizeBonusResolution(raw: string): BonusResolution | null {
 }
 
 async function resolveBonusSheetTitle(spreadsheetId: string): Promise<string> {
-  const configuredTitle = (process.env.GOOGLE_SHEETS_BONUS_TAB ?? "Bonus").trim() || "Bonus";
-  const gidRaw = process.env.GOOGLE_SHEETS_BONUS_GID?.trim();
+  const configuredTitle = (getGoogleSheetsEnv("GOOGLE_SHEETS_BONUS_TAB") ?? "Bonus").trim() || "Bonus";
+  const gidRaw = getGoogleSheetsEnv("GOOGLE_SHEETS_BONUS_GID")?.trim();
 
   const url = new URL(`${GOOGLE_SHEETS_API}/${encodeURIComponent(spreadsheetId)}`);
   url.searchParams.set("fields", "sheets(properties(sheetId,title))");
