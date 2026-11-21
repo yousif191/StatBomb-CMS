@@ -1,3 +1,4 @@
+import { getGoogleSheetsEnv } from "@/lib/sync/environment";
 import "server-only";
 
 import { googleRequest } from "@/lib/sync/google-sheets";
@@ -18,7 +19,7 @@ type SpreadsheetSheet = {
 };
 
 function requiredSpreadsheetId(): string {
-  const value = process.env.GOOGLE_SHEETS_SPREADSHEET_ID?.trim();
+  const value = getGoogleSheetsEnv("GOOGLE_SHEETS_SPREADSHEET_ID")?.trim();
   if (!value) {
     throw new PreviewInputError("Google Sheets integration is not configured.");
   }
@@ -26,11 +27,11 @@ function requiredSpreadsheetId(): string {
 }
 
 function configuredTabTitle(): string {
-  return (process.env.GOOGLE_SHEETS_HYPER_CARE_TAB ?? HYPER_CARE_SHEET_TAB).trim() || HYPER_CARE_SHEET_TAB;
+  return (getGoogleSheetsEnv("GOOGLE_SHEETS_HYPER_CARE_TAB") ?? HYPER_CARE_SHEET_TAB).trim() || HYPER_CARE_SHEET_TAB;
 }
 
 function configuredGid(): number {
-  const gid = Number(process.env.GOOGLE_SHEETS_HYPER_CARE_GID ?? String(HYPER_CARE_SHEET_GID));
+  const gid = Number(getGoogleSheetsEnv("GOOGLE_SHEETS_HYPER_CARE_GID") ?? String(HYPER_CARE_SHEET_GID));
   if (!Number.isSafeInteger(gid) || gid < 0) {
     throw new PreviewInputError("Google Sheets tab configuration is invalid.");
   }
