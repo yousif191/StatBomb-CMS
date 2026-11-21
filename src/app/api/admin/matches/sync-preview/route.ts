@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { buildMatchMasterApplyPlan, classifyMatchMasterRows, createMatchMasterPreviewFingerprint, fetchMatchMasterPreviewMatches } from "@/lib/match-master-preview";
 import { parseMatchMasterSla, syncMatchMasterCache } from "@/lib/match-master-cache-sync";
 import { readMatchesMasterSheetForEtaWindow } from "@/lib/sync/google-sheets";
+import { PreviewInputError } from "@/lib/sync/preview";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { acquireMatchMasterSyncLock, releaseMatchMasterSyncLock } from "@/lib/match-master-sync-lock";
 
@@ -167,7 +168,13 @@ export async function GET() {
     });
   } catch (error) {
     console.error("Match Master combined preview failed", error);
-    return NextResponse.json({ error: "Unable to generate the Match Master preview." }, { status: 500 });
+    // PreviewInputError messages are deliberately sanitized for admins and
+    // identify missing TEST configuration / Google authorization / sheet tabs.
+    // Keep unexpected internal errors generic to avoid leaking implementation details.
+    const safeMessage = error instanceof PreviewInputError
+      ? error.safeMessage
+      : "Unable to generate the Match Master preview. Check the Preview function logs for the internal error.";
+    return NextResponse.json({ error: safeMessage }, { status: 500 });
   }
 }
 
