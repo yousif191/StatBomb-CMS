@@ -1,3 +1,4 @@
+import { getGoogleSheetsEnv } from "@/lib/sync/environment";
 import "server-only";
 
 import { googleRequest } from "@/lib/sync/google-sheets";
@@ -61,7 +62,7 @@ type LoadedOverTargetSheet = {
 };
 
 function requiredSpreadsheetId(): string {
-  const value = process.env.GOOGLE_SHEETS_SPREADSHEET_ID?.trim();
+  const value = getGoogleSheetsEnv("GOOGLE_SHEETS_SPREADSHEET_ID")?.trim();
 
   if (!value) {
     throw new PreviewInputError(
@@ -154,11 +155,11 @@ async function resolveOverTargetSheet(
 ): Promise<{ title: string; sheetId: number }> {
   const configuredTitle =
     (
-      process.env.GOOGLE_SHEETS_OVER_TARGET_TAB ?? OVER_TARGET_SHEET_TAB
+      getGoogleSheetsEnv("GOOGLE_SHEETS_OVER_TARGET_TAB") ?? OVER_TARGET_SHEET_TAB
     ).trim() || OVER_TARGET_SHEET_TAB;
 
   const configuredGid = Number(
-    process.env.GOOGLE_SHEETS_OVER_TARGET_GID ??
+    getGoogleSheetsEnv("GOOGLE_SHEETS_OVER_TARGET_GID") ??
       String(OVER_TARGET_SHEET_GID)
   );
 
