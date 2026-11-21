@@ -3,10 +3,10 @@
  * On the dashboard-auto-sheet-sync Preview branch, only TEST-prefixed
  * credentials and spreadsheet configuration are accepted.
  */
-const TEST_BRANCH = "feat/dashboard-auto-sheet-sync";
+import { isDashboardAutoSheetTestBranch } from "@/lib/supabase/environment";
 
 export function getGoogleSheetsEnv(name: string): string | undefined {
-  if (process.env.VERCEL_GIT_COMMIT_REF !== TEST_BRANCH) {
+  if (!isDashboardAutoSheetTestBranch()) {
     return process.env[name];
   }
 
