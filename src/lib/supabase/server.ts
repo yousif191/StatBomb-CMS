@@ -6,6 +6,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient as createSupabaseJsClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import type { Database } from "@/types/database.types";
+import { getSupabasePublicConfig, getSupabaseSecretKey } from "@/lib/supabase/environment";
 
 /**
  * Server Component / Route Handler / Server Action Supabase client.
@@ -15,9 +16,11 @@ import type { Database } from "@/types/database.types";
 export function createClient() {
   const cookieStore = cookies();
 
+  const { url, anonKey } = getSupabasePublicConfig();
+
   return createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    url,
+    anonKey,
     {
       cookies: {
         getAll() {
@@ -49,9 +52,11 @@ export function createServiceRoleClient() {
     throw new Error("createServiceRoleClient must never run in the browser.");
   }
 
+  const { url } = getSupabasePublicConfig();
+
   return createSupabaseJsClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    url,
+    getSupabaseSecretKey(),
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
 }
