@@ -9,7 +9,10 @@ export const DASHBOARD_AUTO_SHEET_TEST_BRANCH = "feat/dashboard-auto-sheet-sync"
 export const TEST_SUPABASE_PROJECT_REF = "cobunhmzrzyymjndmfvt";
 
 export function isDashboardAutoSheetTestBranch(): boolean {
-  return process.env.VERCEL_GIT_COMMIT_REF === DASHBOARD_AUTO_SHEET_TEST_BRANCH;
+  return (
+    process.env.VERCEL_GIT_COMMIT_REF === DASHBOARD_AUTO_SHEET_TEST_BRANCH ||
+    Boolean(process.env.NEXT_PUBLIC_TEST_SUPABASE_URL)
+  );
 }
 
 function requiredEnv(name: string): string {
