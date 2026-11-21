@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Database, UserRole } from "@/types/database.types";
+import { getSupabasePublicConfig } from "@/lib/supabase/environment";
 import { WORKSPACE_COOKIE, isWorkspaceMode } from "@/lib/auth/workspace-constants";
 
 const PUBLIC_PATHS = ["/login", "/auth/callback"];
@@ -19,9 +20,10 @@ export async function middleware(request: NextRequest) {
 
   let response = NextResponse.next({ request: { headers: requestHeaders } });
 
+  const { url, anonKey } = getSupabasePublicConfig();
   const supabase = createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    url,
+    anonKey,
     {
       cookies: {
         getAll() {
