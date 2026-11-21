@@ -1,3 +1,4 @@
+import { getGoogleSheetsEnv } from "@/lib/sync/environment";
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -318,9 +319,9 @@ async function syncWeekCollectors(
 export async function syncExpectedWeeks(client: Client): Promise<ExpectedSyncResult> {
   // ===== ENVIRONMENT VALIDATION =====
   console.log("[EXPECTED_SYNC] START - Checking environment");
-  const hasSpreadsheetId = !!process.env.GOOGLE_SHEETS_SPREADSHEET_ID?.trim();
-  const hasTabName = !!process.env.GOOGLE_SHEETS_EXPECTED_TAB?.trim();
-  const hasGid = !!process.env.GOOGLE_SHEETS_EXPECTED_GID?.trim();
+  const hasSpreadsheetId = !!getGoogleSheetsEnv("GOOGLE_SHEETS_SPREADSHEET_ID")?.trim();
+  const hasTabName = !!getGoogleSheetsEnv("GOOGLE_SHEETS_EXPECTED_TAB")?.trim();
+  const hasGid = !!getGoogleSheetsEnv("GOOGLE_SHEETS_EXPECTED_GID")?.trim();
   console.log(
     `[EXPECTED_SYNC] ENV: spreadsheet=${hasSpreadsheetId}, tab=${hasTabName}, gid=${hasGid}`
   );
