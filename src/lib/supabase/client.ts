@@ -16,8 +16,12 @@ export function createClient() {
     ? process.env.NEXT_PUBLIC_TEST_SUPABASE_ANON_KEY!
     : process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-  if (isTestBuild && !url.includes("cobunhmzrzyymjndmfvt.supabase.co")) {
-    throw new Error("Refusing to connect this TEST build to a non-TEST Supabase project.");
+  if (isTestBuild) {
+    let hostname = "";
+    try { hostname = new URL(url).hostname; } catch { /* handled by the guard below */ }
+    if (hostname !== "cobunhmzrzyymjndmfvt.supabase.co" || !anonKey) {
+      throw new Error("Refusing to connect this TEST build without the expected TEST Supabase URL and public key.");
+    }
   }
 
   return createBrowserClient<Database>(url, anonKey);
