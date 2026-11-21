@@ -1,3 +1,4 @@
+import { getGoogleSheetsEnv } from "@/lib/sync/environment";
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -12,13 +13,13 @@ const GOOGLE_SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
 const EXPECTED_RANGE = "A:AZ";
 
 function requiredSpreadsheetId(): string {
-  const value = process.env.GOOGLE_SHEETS_SPREADSHEET_ID?.trim();
+  const value = getGoogleSheetsEnv("GOOGLE_SHEETS_SPREADSHEET_ID")?.trim();
   if (!value) throw new PreviewInputError("Google Sheets integration is not configured.");
   return value;
 }
 
 function configuredTabTitle(): string {
-  return (process.env.GOOGLE_SHEETS_EXPECTED_TAB ?? "Expected").trim() || "Expected";
+  return (getGoogleSheetsEnv("GOOGLE_SHEETS_EXPECTED_TAB") ?? "Expected").trim() || "Expected";
 }
 
 type SpreadsheetSheet = { properties?: { sheetId?: number; title?: string } };
@@ -35,7 +36,7 @@ async function resolveExpectedSheetForDebug(
 ): Promise<{ title: string; sheetId: number }> {
   const sheets = await listSheets(spreadsheetId);
   const configuredTitle = configuredTabTitle();
-  const gidRaw = process.env.GOOGLE_SHEETS_EXPECTED_GID?.trim();
+  const gidRaw = getGoogleSheetsEnv("GOOGLE_SHEETS_EXPECTED_GID")?.trim();
 
   if (gidRaw) {
     const gid = Number(gidRaw);
@@ -112,12 +113,12 @@ export async function GET(): Promise<NextResponse> {
   if (!access.ok) return access.response;
 
   try {
-    const spreadsheetIdConfigured = !!process.env.GOOGLE_SHEETS_SPREADSHEET_ID?.trim();
-    const expectedTabConfigured = !!process.env.GOOGLE_SHEETS_EXPECTED_TAB?.trim();
-    const expectedGidConfigured = !!process.env.GOOGLE_SHEETS_EXPECTED_GID?.trim();
+    const spreadsheetIdConfigured = !!getGoogleSheetsEnv("GOOGLE_SHEETS_SPREADSHEET_ID")?.trim();
+    const expectedTabConfigured = !!getGoogleSheetsEnv("GOOGLE_SHEETS_EXPECTED_TAB")?.trim();
+    const expectedGidConfigured = !!getGoogleSheetsEnv("GOOGLE_SHEETS_EXPECTED_GID")?.trim();
     const googleCredentialsConfigured =
-      !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL?.trim() &&
-      !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.trim();
+      !!getGoogleSheetsEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL")?.trim() &&
+      !!getGoogleSheetsEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY")?.trim();
 
     const spreadsheetId = requiredSpreadsheetId();
     let resolvedSheet: { title: string; sheetId: number };
