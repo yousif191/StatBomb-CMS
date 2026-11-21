@@ -1,3 +1,4 @@
+import { getGoogleSheetsEnv } from "@/lib/sync/environment";
 import { createClient } from "@/lib/supabase/server";
 import { SyncPreviewClient } from "@/components/SyncPreviewClient";
 
@@ -10,16 +11,16 @@ export default async function AdminSyncPage() {
     .limit(10);
 
   const configured = Boolean(
-    process.env.GOOGLE_SHEETS_SPREADSHEET_ID &&
-      (process.env.GOOGLE_SHEETS_API_KEY ||
-        (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL &&
-          process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY))
+    getGoogleSheetsEnv("GOOGLE_SHEETS_SPREADSHEET_ID") &&
+      (getGoogleSheetsEnv("GOOGLE_SHEETS_API_KEY") ||
+        (getGoogleSheetsEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL") &&
+          getGoogleSheetsEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY")))
   );
 
   return (
     <SyncPreviewClient
       configured={configured}
-      defaultSheetName={process.env.GOOGLE_SHEETS_DISTRIBUTION_TAB ?? "Distribution"}
+      defaultSheetName={getGoogleSheetsEnv("GOOGLE_SHEETS_DISTRIBUTION_TAB") ?? "Distribution"}
       recentRuns={(runs ?? []).map((run) => ({
         id: run.id,
         source: run.source,
