@@ -1,3 +1,4 @@
+import { getGoogleSheetsEnv } from "@/lib/sync/environment";
 import "server-only";
 
 import { googleRequest } from "@/lib/sync/google-sheets";
@@ -28,13 +29,13 @@ const EXPECTED_RANGE = "A:AZ";
 type SpreadsheetSheet = { properties?: { sheetId?: number; title?: string } };
 
 function requiredSpreadsheetId(): string {
-  const value = process.env.GOOGLE_SHEETS_SPREADSHEET_ID?.trim();
+  const value = getGoogleSheetsEnv("GOOGLE_SHEETS_SPREADSHEET_ID")?.trim();
   if (!value) throw new PreviewInputError("Google Sheets integration is not configured.");
   return value;
 }
 
 function configuredTabTitle(): string {
-  return (process.env.GOOGLE_SHEETS_EXPECTED_TAB ?? "Expected").trim() || "Expected";
+  return (getGoogleSheetsEnv("GOOGLE_SHEETS_EXPECTED_TAB") ?? "Expected").trim() || "Expected";
 }
 
 async function listSheets(spreadsheetId: string): Promise<SpreadsheetSheet[]> {
@@ -47,7 +48,7 @@ async function listSheets(spreadsheetId: string): Promise<SpreadsheetSheet[]> {
 async function resolveExpectedSheet(spreadsheetId: string): Promise<{ title: string; sheetId: number }> {
   const sheets = await listSheets(spreadsheetId);
   const configuredTitle = configuredTabTitle();
-  const gidRaw = process.env.GOOGLE_SHEETS_EXPECTED_GID?.trim();
+  const gidRaw = getGoogleSheetsEnv("GOOGLE_SHEETS_EXPECTED_GID")?.trim();
 
   if (gidRaw) {
     const gid = Number(gidRaw);
